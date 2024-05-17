@@ -10,6 +10,12 @@ type
   Item* {.explain.} = concept a, type T
     a.summary is Summary
 
+  Dimension*[S: Summary] {.explain.} = concept var a, type T
+    a.addSummary(Summary)
+    T.fromSummary(Summary) is T
+
+  Bias* = enum Left, Right
+
 proc `=copy`*[T](a: var Arc[T], b: Arc[T]) {.error.}
 proc `=dup`*[T](a: Arc[T]): Arc[T] {.error.}
 
@@ -19,6 +25,18 @@ const treeBase = 1
 const treeChildrenMax = treeBase * 2
 
 type
+  StackEntry*[T: Item, D] = object
+    tree {.cursor.}: SumTree[T]
+    index: int
+    position: D
+
+  Cursor*[T: Item, D] = object
+    tree {.cursor.}: SumTree[T]
+    stack: seq[StackEntry[T, D]]
+    position: D
+    didSeek: bool
+    atEnd: bool
+
   NodeKind* = enum Internal, Leaf
   Node*[T: Item] = object
     mSummary: T.summaryType
@@ -55,6 +73,11 @@ func pretty*[T: Item](node {.byref.}: Node[T]): string =
 
 func pretty*[T: Item](tree: SumTree[T]): string = Arc[Node[T]](tree).value[].pretty
 
+func invert*(bias: Bias): Bias =
+  case bias
+  of Left: Right
+  of Right: Left
+
 func isLeaf*[T: Item](node: Node[T]): bool = node.kind == Leaf
 func isInternal*[T: Item](node: Node[T]): bool = node.kind == Internal
 
@@ -82,6 +105,16 @@ func isUnderflowing*[T](node: Node[T]): bool =
     node.mChildren.len < treeBase
   of Leaf:
     node.mItems.len < treeBase
+
+func asNode*[T: Item](tree: SumTree[T]): lent Node[T] =
+  Arc[Node[T]](tree).value[]
+
+func isEmpty*[T: Item](tree: SumTree[T]): bool =
+  case tree.asNode.kind
+  of Internal:
+    false
+  of Leaf:
+    tree.asNode.mItems.len == 0
 
 func newLeaf*[T](): Node[T] =
   type Summary = T.summaryType
@@ -147,28 +180,35 @@ func new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
     assert nodes.len == 1
     SumTree[T](Arc[Node[T]].new(nodes[0].move))
 
-when isMainModule:
-  type TestSummary = object
-    count: int
-    max: int
-    zeroes: int
+func initCursor*[T: Item](tree {.byref.}: SumTree[T], D: typedesc[Dimension]): Cursor[T, D] =
+  result.tree = tree
+  result.position = D.default
+  result.atEnd = tree.isEmpty
 
-  type TestSummary2 = object
-    count: int
-    max: int
-    ones: int
+when isMainModule:
+  type Count = distinct int
+  type TestSummary = object
+    count: Count
+    # max: int
+    # zeroes: int
+
+  func `+=`(a: var Count, b: Count) {.borrow.}
 
   func `+=`*(a: var TestSummary, b: TestSummary) =
     a.count += b.count
-    a.max = max(a.max, b.max)
-    a.zeroes += b.zeroes
+    # a.max = max(a.max, b.max)
+    # a.zeroes += b.zeroes
 
-  func `+=`(a: var TestSummary2, b: TestSummary2) =
-    a.count += b.count
-    a.max = max(a.max, b.max)
-    a.ones += b.ones
+  func addSummary(a: var Count, b: TestSummary) =
+    a += b.count
 
-  func summary*(x: int): TestSummary = TestSummary(count: 1, max: x, zeroes: if x == 0: 1 else: 0)
+  func fromSummary(_: typedesc[Count], a: TestSummary): Count = a.count
+
+  # func summary*(x: int): TestSummary = TestSummary(count: 1, max: x, zeroes: if x == 0: 1 else: 0)
+  func summary*(x: int): TestSummary = TestSummary(count: 1.Count)
 
   var tree = SumTree[int].new([0, 1, 1, 2, 3, 5, 8, 13, 21, 34])
   echo tree.pretty
+
+  var cursor = tree.initCursor Count
+  echo cursor

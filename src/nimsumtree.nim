@@ -32,6 +32,7 @@ type
   Bias* = enum Left, Right
 
 template summaryType*(T: typedesc[Item]): untyped = typeof(T.default.summary)
+template summaryArrayType*(T: typedesc[Item]): untyped = Array[typeof(T.default.summary), treeChildrenMax]
 
 type
   StackEntry*[T: Item, D] = object
@@ -46,18 +47,18 @@ type
     didSeek: bool
     atEnd: bool
 
-  ItemArray*[T] = Array[T, treeChildrenMax]
-  ChildArray*[T] = Array[SumTree[T], treeChildrenMax]
+  ItemArray*[T: Item] = Array[T, treeChildrenMax]
+  ChildArray*[T: Item] = Array[SumTree[T], treeChildrenMax]
   SummaryArray*[T] = Array[T, treeChildrenMax]
 
   NodeKind* = enum Internal, Leaf
   Node*[T: Item] = object
     mSummary: T.summaryType
-    mSummaries: seq[T.summaryType]
+    mSummaries: T.summaryArrayType
     case kind: NodeKind
     of Internal:
       mHeight: uint8
-      mChildren: seq[SumTree[T]]
+      mChildren: ChildArray[T]
     of Leaf:
       mItems: ItemArray[T]
 
@@ -96,7 +97,7 @@ func `[]`*[T; C: static int](arr {.byref.}: Array[T, C], index: int): lent T =
 
 func add*[T; C: static int](arr: var Array[T, C], val: sink T) =
   assert arr.len < C
-  arr[arr.len] = val.move
+  arr.data[arr.len.int] = val.move
   inc arr.len
 
 macro evalOnceAs(expAlias, exp: untyped,
@@ -199,13 +200,13 @@ func height*[T: Item](node: Node[T]): uint8 =
 func summary*[T: Item](node: Node[T]): T.summaryType = node.mSummary
 
 template childSummaries*[T: Item](node: Node[T]): untyped =
-  node.mSummaries.toOpenArray(0, node.mSummaries.high)
+  node.mSummaries.data.toOpenArray(0, node.mSummaries.high)
 
 template childTrees*[T: Item](node: Node[T]): untyped =
-  node.mChildren.toOpenArray(0, node.mChildren.high)
+  node.mChildren.data.toOpenArray(0, node.mChildren.high)
 
 template childItems*[T: Item](node: Node[T]): untyped =
-  node.mItems.data.toOpenArray(0, node.mItems.len - 1)
+  node.mItems.data.toOpenArray(0, node.mItems.high)
 
 func isUnderflowing*[T](node: Node[T]): bool =
   case node.kind
@@ -280,12 +281,12 @@ func new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
 
     i = endIndex
 
-    let summaries: seq[T.summaryType] = @(subItems.mapIt(it.summary).data)
-    var s: T.summaryType = summaries[0]
+    var summaries: SummaryArray[T.summaryType] = subItems.mapIt(it.summary)
+    var s: T.summaryType = summaries[0].clone()
     for k in 1..summaries.high:
       s += summaries[k]
 
-    nodes.add Node[T](kind: Leaf, mSummary: s, mItems: subItems, mSummaries: summaries)
+    nodes.add Node[T](kind: Leaf, mSummary: s, mItems: subItems, mSummaries: summaries.move)
 
   var parentNodes: seq[Node[T]] = @[]
   var height: uint8 = 0
@@ -354,7 +355,7 @@ proc pushTreeRecursive*[T: Item](tree: var SumTree[T], other: sink SumTree[T]): 
 func fromChildTrees*[T: Item](_: typedesc[SumTree[T]], left: sink SumTree[T], right: sink SumTree[T]): SumTree[T] =
   let height = left.asNode.height + 1
 
-  var childSummaries: seq[T.summaryType] = @[]
+  var childSummaries: SummaryArray[T.summaryType]
   childSummaries.add(left.asNode.mSummary.clone())
   childSummaries.add(right.asNode.mSummary.clone())
 
@@ -362,7 +363,9 @@ func fromChildTrees*[T: Item](_: typedesc[SumTree[T]], left: sink SumTree[T], ri
   for i in 1..childSummaries.high:
     sum.addSummary(childSummaries[i])
 
-  var childTrees = @[left.move, right.move]
+  var childTrees: ChildArray[T]
+  childTrees.add left.move
+  childTrees.add right.move
 
   SumTree[T](
     Arc[Node[T]].new(
@@ -370,8 +373,8 @@ func fromChildTrees*[T: Item](_: typedesc[SumTree[T]], left: sink SumTree[T], ri
         kind: Internal,
         mHeight: height,
         mSummary: sum,
-        mSummaries: childSummaries,
-        mChildren: childTrees,
+        mSummaries: childSummaries.move,
+        mChildren: childTrees.move,
       )
     )
   )

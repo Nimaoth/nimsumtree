@@ -8,14 +8,14 @@ type
     value: ref T
 
   Summary* {.explain.} = concept var a, b
-    a += b
+    a.addSummary(b)
 
   Item* {.explain.} = concept a, type T
     a.summary is Summary
 
-  Dimension*[S: Summary] {.explain.} = concept var a, type T
+  Dimension*[S: Summary] {.explain.} = concept var a, b, type T
     a.addSummary(Summary)
-    a.clone() is T
+    b.clone() is T
     T.fromSummary(Summary) is T
 
   # SeekTarget*[S: Summary, D: Dimension[S]] {.explain.} = concept a, type S, type D
@@ -54,6 +54,14 @@ type
 
   SumTree*[T: Item] = distinct Arc[Node[T]]
 
+  SeekAggregate* {.explain.} = concept var a
+    type T = Item
+    type S = Summary
+    beginLeaf(a)
+    endLeaf(a)
+    pushItem(a, T, S)
+    pushTree(a, SumTree[T], S)
+
 proc `=copy`*[T](a: var Arc[T], b: Arc[T]) {.error.}
 proc `=dup`*[T](a: Arc[T]): Arc[T] {.error.}
 
@@ -62,6 +70,23 @@ proc `=dup`*[T](a: Node[T]): Node[T] {.error.}
 
 proc `=copy`*[T](a: var SumTree[T], b: SumTree[T]) {.error.}
 proc `=dup`*[T](a: SumTree[T]): SumTree[T] {.error.}
+
+proc beginLeaf*(a: var tuple[]) = discard
+proc endLeaf*(a: var tuple[]) = discard
+proc pushItem*[T; S](a: var tuple[], item: T, summary: S) = discard
+proc pushTree*[T; S](a: var tuple[], tree: SumTree[T], summary: S) = discard
+
+type SummarySeekAggregate*[D] = object
+  value: D
+
+proc beginLeaf*[D](a: var SummarySeekAggregate[D]) = discard
+proc endLeaf*[D](a: var SummarySeekAggregate[D]) = discard
+
+proc pushItem*[D; T; S](a: var SummarySeekAggregate[D], item: T, summary: S) =
+  a.value.addSummary(summary)
+
+proc pushTree*[D; T; S: Summary](a: var SummarySeekAggregate[D], tree: SumTree[T], summary: S) =
+  a.value.addSummary(summary)
 
 proc `$`*[T](arc: Arc[T]): string = &"Arc({arc.value[]})"
 proc `$`*[T: Item](node: Node[T]): string =
@@ -149,6 +174,7 @@ func new*[T: Item](_: typedesc[SumTree[T]]): SumTree[T] =
 func new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
   mixin summary
   mixin `+=`
+  mixin addSummary
 
   var nodes: seq[Node[T]]
   var i = 0
@@ -204,13 +230,14 @@ func assertDidSeek*(self: Cursor) =
   assert self.didSeek
 
 func reset*(self: var Cursor) =
+  ## Reset the cursor to the beginning
   self.didSeek = false
   self.atEnd = self.tree.isEmpty
   self.stack.setLen 0
   self.position = typeof(self.position).default
 
-proc seekInternal[T: Item, D: Dimension[T.summaryType], Target, Aggregate](
-    self: var Cursor[T, D], target: Target, bias: Bias, aggregate: Aggregate): bool =
+proc seekInternal[T: Item; D: Dimension[T.summaryType]; Target; Aggregate](
+    self: var Cursor[T, D], target: Target, bias: Bias, aggregate: var Aggregate): bool =
 
   template debugf(str: string): untyped =
     # echo "  ".repeat(self.stack.len) & &(str)
@@ -234,7 +261,7 @@ proc seekInternal[T: Item, D: Dimension[T.summaryType], Target, Aggregate](
       block inner:
 
         if iterations == 15:
-          break
+          break outer
 
         debugf"loop {self.stack.len}, ascending: {ascending}, {self}"
 
@@ -265,7 +292,7 @@ proc seekInternal[T: Item, D: Dimension[T.summaryType], Target, Aggregate](
             if comparison > 0 or (comparison == 0 and bias == Right):
               debugf"ahead of target"
               self.position = childEnd
-              # aggregate.pushTree(childTree, childSummary) #todo
+              aggregate.pushTree(childTree, childSummary)
               entry.index += 1
               debugf"index: {entry.index}, {self.stack[self.stack.high]}"
               entry.position = self.position.clone()
@@ -282,7 +309,7 @@ proc seekInternal[T: Item, D: Dimension[T.summaryType], Target, Aggregate](
 
         of Leaf:
           debugf"leaf: {node.mItems}"
-          # aggregate.beginLeaf() # todo
+          aggregate.beginLeaf()
 
           for i in entry.index..node.mItems.high:
             let item {.cursor.} = node.mItems[i]
@@ -297,16 +324,16 @@ proc seekInternal[T: Item, D: Dimension[T.summaryType], Target, Aggregate](
             if comparison > 0 or (comparison == 0 and bias == Right):
               debugf"ahead of target"
               self.position = childEnd
-              # aggregate.pushItem(item, itemSummary) #todo
+              aggregate.pushItem(item, itemSummary)
               entry.index += 1
               debugf"index: {entry.index}, {self.stack[self.stack.high]}"
 
             else:
               debugf"found?"
-              # aggregate.endLeaf() # todo
+              aggregate.endLeaf()
               break outer
 
-          # aggregate.endLeaf() # todo
+          aggregate.endLeaf()
 
         discard self.stack.pop()
         ascending = true
@@ -321,14 +348,28 @@ proc seekInternal[T: Item, D: Dimension[T.summaryType], Target, Aggregate](
     if sum.isSome:
       endPosition.addSummary(sum.get)
 
-  echo &"{target} <> {endPosition} -> {target.cmp(endPosition)}"
+  # echo &"{target} <> {endPosition} -> {target.cmp(endPosition)}"
   return target.cmp(endPosition) == 0
 
-proc seekForward*[T: Item, D: Dimension[T.summaryType], Target](
+proc seekForward*[T: Item; D: Dimension[T.summaryType]; Target](
     self: var Cursor[T, D], target: Target, bias: Bias): bool =
-  self.seekInternal(target, bias, ())
+  ## Moves the cursor to the target
+
+  var agg = ()
+  self.seekInternal(target, bias, agg)
+
+proc summary*[T: Item; D: Dimension[T.summaryType]; Target](
+    self: var Cursor[T, D], Output: typedesc[Dimension], `end`: Target, bias: Bias): Output =
+  ## Advances the cursor to `end` and returns the aggregated value of the `Output` dimension
+  ## up until, but not including `end`
+
+  var summary = SummarySeekAggregate[Output](value: Output.default)
+  discard self.seekInternal(`end`, bias, summary)
+  summary.value.move
 
 func itemSummary*[T: Item, D: Dimension[T.summaryType]](self: Cursor[T, D]): Option[T.summaryType] =
+  ## Returns the summary of the current item, or none if the cursor is past the end
+
   self.assertDidSeek
   if self.stack.len > 0:
     let entry {.cursor.} = self.stack[self.stack.high]
@@ -344,7 +385,23 @@ func itemSummary*[T: Item, D: Dimension[T.summaryType]](self: Cursor[T, D]): Opt
 
   return T.summaryType.none
 
+proc first[T: Item; D: Dimension[T.summaryType]](self: Cursor[T, D]): lent D =
+  ## Returns the aggregated value up until, but not including the current node
+  self.position
+
+proc last[T: Item; D: Dimension[T.summaryType]](self: Cursor[T, D]): D =
+  ## Returns the aggregated value of the current node
+
+  let summary = self.itemSummary
+  if summary.isSome:
+    result = self.position.clone()
+    result.addSummary(summary.get)
+  else:
+    result = self.position.clone()
+
 func item*[T: Item, D: Dimension[T.summaryType]](self: Cursor[T, D]): Option[T] =
+  # Returns the current item, or none if path the end
+
   self.assertDidSeek
   if self.stack.len > 0:
     let entry {.cursor.} = self.stack[self.stack.high]
@@ -370,39 +427,61 @@ when isMainModule:
 
   func `$`(a: Count): string {.borrow.}
   func `+=`(a: var Count, b: Count) {.borrow.}
+  func addSummary(a: var Count, b: Count) = a = (a.int + b.int).Count
   func clone(a: Count): Count = a
-  func cmp*(a: Count, b: Count): int =
-    cmp(a.int, b.int)
+  func cmp*(a: Count, b: Count): int = cmp(a.int, b.int)
+
+  func addSummary(a: var Count, b: TestSummary) = a += b.count
+  func fromSummary(_: typedesc[Count], a: TestSummary): Count = a.count
 
   func `$`(a: Max): string {.borrow.}
-  func `+=`(a: var Max, b: Max) {.borrow.}
+  func `+=`(a: var Max, b: Max) = a = max(a.int, b.int).Max
+  func addSummary(a: var Max, b: Max) = a = max(a.int, b.int).Max
   func clone(a: Max): Max = a
-  func cmp*(a: Max, b: Max): int =
-    cmp(a.int, b.int)
+  func cmp*(a: Max, b: Max): int = cmp(a.int, b.int)
+
+  func addSummary(a: var Max, b: TestSummary) = a += b.max
+  func fromSummary(_: typedesc[Max], a: TestSummary): Max = a.max
+
+  func `+=`(a: var (Count, Max), b: (Count, Max)) =
+    a[0] += b[0]
+    a[1] += b[1]
+  func addSummary(a: var (Count, Max), b: (Count, Max)) =
+    a[0] += b[0]
+    a[1] += b[1]
+  func clone(a: (Count, Max)): (Count, Max) = (a[0].clone(), a[1].clone())
+  func cmp*(a: Count, b: (Count, Max)): int = cmp(a.int, b[0].int)
+
+  func addSummary(a: var (Count, Max), b: TestSummary) =
+    a[0] += b.count
+    a[1] = max(a[1].int, b.max.int).Max
+
+  func fromSummary(_: typedesc[(Count, Max)], a: TestSummary): (Count, Max) = (a.count, a.max)
 
   func `+=`*(a: var TestSummary, b: TestSummary) =
     a.count += b.count
     a.max = max(a.max.int, b.max.int).Max
     # a.zeroes += b.zeroes
 
-  func addSummary(a: var Count, b: TestSummary) = a += b.count
-  func fromSummary(_: typedesc[Count], a: TestSummary): Count = a.count
-
-  func addSummary(a: var Max, b: TestSummary) = a += b.max
-  func fromSummary(_: typedesc[Max], a: TestSummary): Max = a.max
+  func addSummary*(a: var TestSummary, b: TestSummary) =
+    a.count += b.count
+    a.max = max(a.max.int, b.max.int).Max
+    # a.zeroes += b.zeroes
 
   # func summary*(x: int): TestSummary = TestSummary(count: 1, max: x, zeroes: if x == 0: 1 else: 0)
   func summary*(x: int): TestSummary = TestSummary(count: 1.Count, max: x.Max)
 
-  var tree = SumTree[int].new([0, 1, 1, 2, 3, 5, 8, 13, 21, 34])
+  # var tree = SumTree[int].new([0, 1, 1, 2, 3, 5, 8, 13, 21, 34])
+  var tree = SumTree[int].new([8, 0, 5, 1, 21, 3, 34, 2, 1, 13, 2])
   echo tree.pretty
 
   proc testCursor[T: Dimension](steps: seq[(T, Bias)]) =
-    var cursor = tree.initCursor T
+    var cursor = tree.initCursor (Count, Max)
 
     for i, s in steps:
       let prefix = if i == 0: "--- " else: "    "
-      echo prefix, s, ", ", cursor.seekForward(s[0], s[1]), " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
+      # echo prefix, s, ", ", cursor.seekForward(s[0], s[1]), " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
+      echo prefix, s, ", ", cursor.summary(Max, s[0], s[1]), ", ", cursor.first, ", ", cursor.last, " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
 
   testCursor @[(0.Count, Left)]
   testCursor @[(1.Count, Left)]
@@ -410,6 +489,9 @@ when isMainModule:
   testCursor @[(3.Count, Left)]
   testCursor @[(4.Count, Left)]
   testCursor @[(5.Count, Left)]
+  testCursor @[(6.Count, Left)]
+  testCursor @[(7.Count, Left)]
+  testCursor @[(8.Count, Left)]
 
   testCursor @[(0.Count, Right)]
   testCursor @[(1.Count, Right)]
@@ -417,6 +499,22 @@ when isMainModule:
   testCursor @[(3.Count, Right)]
   testCursor @[(4.Count, Right)]
   testCursor @[(5.Count, Right)]
+  testCursor @[(6.Count, Right)]
+  testCursor @[(7.Count, Right)]
+  testCursor @[(8.Count, Right)]
 
   testCursor @[(2.Count, Left), (5.Count, Left), (9.Count, Left), (10.Count, Left), (11.Count, Left)]
   testCursor @[(2.Count, Right), (5.Count, Right), (9.Count, Right), (10.Count, Right), (11.Count, Right)]
+
+  # testCursor @[(0.Max, Left)]
+  # testCursor @[(1.Max, Left)]
+  # testCursor @[(2.Max, Left)]
+  # testCursor @[(3.Max, Left)]
+  # testCursor @[(4.Max, Left)]
+  # testCursor @[(5.Max, Left)]
+
+
+  var cursor = tree.initCursor (Count, Max)
+  echo cursor.seekForward(3.Count, Right), " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
+
+

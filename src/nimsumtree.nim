@@ -5,7 +5,12 @@ const treeChildrenMax = treeBase * 2
 
 type
   Arc*[T] = object
+    count: ref int
     value: ref T
+
+  Array*[T; Cap: static int] = object
+    data: array[Cap, T]
+    len: int8
 
   Summary* {.explain.} = concept var a, b
     a.addSummary(b)
@@ -41,6 +46,10 @@ type
     didSeek: bool
     atEnd: bool
 
+  ItemArray*[T] = Array[T, treeChildrenMax]
+  ChildArray*[T] = Array[SumTree[T], treeChildrenMax]
+  SummaryArray*[T] = Array[T, treeChildrenMax]
+
   NodeKind* = enum Internal, Leaf
   Node*[T: Item] = object
     mSummary: T.summaryType
@@ -50,7 +59,7 @@ type
       mHeight: uint8
       mChildren: seq[SumTree[T]]
     of Leaf:
-      mItems: seq[T]
+      mItems: ItemArray[T]
 
   SumTree*[T: Item] = distinct Arc[Node[T]]
 
@@ -70,6 +79,65 @@ proc `=dup`*[T](a: Node[T]): Node[T] {.error.}
 
 proc `=copy`*[T](a: var SumTree[T], b: SumTree[T]) {.error.}
 proc `=dup`*[T](a: SumTree[T]): SumTree[T] {.error.}
+
+func initArray*(T: typedesc, capacity: static int): Array[T, capacity] =
+  result = Array[T, capacity].default
+
+template low*[T; C: static int](arr: Array[T, C]): int =
+  0
+
+template high*[T; C: static int](arr: Array[T, C]): int =
+  int(arr.len - 1)
+
+func `[]`*[T; C: static int](arr {.byref.}: Array[T, C], index: int): lent T =
+  assert index >= 0
+  assert index < C
+  return arr.data[index]
+
+func add*[T; C: static int](arr: var Array[T, C], val: sink T) =
+  assert arr.len < C
+  arr[arr.len] = val.move
+  inc arr.len
+
+macro evalOnceAs(expAlias, exp: untyped,
+                 letAssigneable: static[bool]): untyped =
+  ## Injects `expAlias` in caller scope, to avoid bugs involving multiple
+  ## substitution in macro arguments such as
+  ## https://github.com/nim-lang/Nim/issues/7187.
+  ## `evalOnceAs(myAlias, myExp)` will behave as `let myAlias = myExp`
+  ## except when `letAssigneable` is false (e.g. to handle openArray) where
+  ## it just forwards `exp` unchanged.
+  expectKind(expAlias, nnkIdent)
+  var val = exp
+
+  result = newStmtList()
+  # If `exp` is not a symbol we evaluate it once here and then use the temporary
+  # symbol as alias
+  if exp.kind != nnkSym and letAssigneable:
+    val = genSym()
+    result.add(newLetStmt(val, exp))
+
+  result.add(
+    newProc(name = genSym(nskTemplate, $expAlias), params = [getType(untyped)],
+      body = val, procType = nnkTemplateDef))
+
+template mapIt*[T; C: static int](arr: Array[T, C], op: untyped): untyped =
+  block:
+    type OutType = typeof((
+      block:
+        var it {.inject.}: typeof(arr.data[0], typeOfProc);
+        op), typeOfProc)
+
+    evalOnceAs(arr2, arr, compiles((let _ = s)))
+
+    var res: Array[OutType, C]
+    res.len = arr2.len
+
+    for i in 0..<arr2.len:
+      var it {.inject, cursor.} = arr2.data[i]
+      res.data[i] = op
+
+    res
 
 proc beginLeaf*(a: var tuple[]) = discard
 proc endLeaf*(a: var tuple[]) = discard
@@ -121,7 +189,7 @@ func invert*(bias: Bias): Bias =
 func isLeaf*[T: Item](node: Node[T]): bool = node.kind == Leaf
 func isInternal*[T: Item](node: Node[T]): bool = node.kind == Internal
 
-func height*[T: Item](node: Node[T]): int =
+func height*[T: Item](node: Node[T]): uint8 =
   case node.kind
   of Internal:
     node.mHeight
@@ -137,7 +205,7 @@ template childTrees*[T: Item](node: Node[T]): untyped =
   node.mChildren.toOpenArray(0, node.mChildren.high)
 
 template childItems*[T: Item](node: Node[T]): untyped =
-  node.mItems.toOpenArray(0, node.mItems.high)
+  node.mItems.data.toOpenArray(0, node.mItems.len - 1)
 
 func isUnderflowing*[T](node: Node[T]): bool =
   case node.kind
@@ -145,6 +213,9 @@ func isUnderflowing*[T](node: Node[T]): bool =
     node.mChildren.len < treeBase
   of Leaf:
     node.mItems.len < treeBase
+
+template asArc*[T: Item](tree: SumTree[T]): Arc[Node[T]] =
+  Arc[Node[T]](tree)
 
 func asNode*[T: Item](tree: SumTree[T]): lent Node[T] =
   Arc[Node[T]](tree).value[]
@@ -161,15 +232,37 @@ func newLeaf*[T](): Node[T] =
   Node[T](kind: Leaf, mSummary: Summary.default)
 
 func new*[T](_: typedesc[Arc[T]]): Arc[T] =
+  result.count = new int
+  result.count[] = 1
   result.value = new T
   result.value[] = T.default
 
+proc clone*[T](a {.byref.}: Arc[T]): Arc[T] =
+  result.count = a.count
+  result.count[] += 1
+  result.value = a.value
+
 func new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
+  result.count = new int
+  result.count[] = 1
   result.value = new T
   result.value[] = default.move
 
+proc getUnique*[T](a: var Arc[T]): lent T =
+  if a.count[] > 1:
+    a = a.clone()
+  return a.value[]
+
 func new*[T: Item](_: typedesc[SumTree[T]]): SumTree[T] =
   SumTree[T](Arc[Node[T]].new(newLeaf[T]()))
+
+proc clone*[T](a {.byref.}: SumTree[T]): SumTree[T] =
+  SumTree[T](Arc[Node[T]](a).clone())
+
+proc getUnique*[T](a: var SumTree[T]): lent Node[T] =
+  if a.asArc.count[] > 1:
+    a = a.clone()
+  return a.asArc.value[]
 
 func new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
   mixin summary
@@ -180,10 +273,14 @@ func new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
   var i = 0
   while i < items.len:
     let endIndex = min(i + treeChildrenMax, items.len)
-    let subItems: seq[T] = items[i..<endIndex]
+    var subItems: ItemArray[T]
+    subItems.len = int8(endIndex - i)
+    for k in 0..<subItems.len.int:
+      subItems.data[k] = items[i + k]
+
     i = endIndex
 
-    let summaries: seq[T.summaryType] = subItems.mapIt(it.summary)
+    let summaries: seq[T.summaryType] = @(subItems.mapIt(it.summary).data)
     var s: T.summaryType = summaries[0]
     for k in 1..summaries.high:
       s += summaries[k]
@@ -220,6 +317,78 @@ func new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
   else:
     assert nodes.len == 1
     SumTree[T](Arc[Node[T]].new(nodes[0].move))
+
+func leftmostLeaf*[T: Item](tree {.byref.}: SumTree[T]): lent SumTree[T] =
+  case tree.asNode.kind
+  of Leaf:
+    result = tree
+  else:
+    result = tree.asNode.mChildren[0].leftmostLeaf
+
+func rightmostLeaf*[T: Item](tree {.byref.}: SumTree[T]): lent SumTree[T] =
+  case tree.asNode.kind
+  of Leaf:
+    result = tree
+  else:
+    result = tree.asNode.mChildren[tree.asNode.mChildren.high].rightmostLeaf
+
+proc pushTreeRecursive*[T: Item](tree: var SumTree[T], other: sink SumTree[T]): Option[SumTree[T]] =
+  var node {.cursor.} = tree.getUnique()
+  case node.kind
+  of Internal:
+    let otherTree = other.clone
+    let otherNode {.cursor.} = otherTree.asNode
+
+    node.mSummary.addSummary(otherNode.mSummary)
+
+    let heightDelta = node.mHeight - otherNode.mHeight
+    var summariesToAppend: seq[T.summaryType] = @[]
+    var treesToAppend: seq[SumTree[T]] = @[]
+
+
+    discard
+  of Leaf:
+    echo "--- leaf"
+    discard
+
+func fromChildTrees*[T: Item](_: typedesc[SumTree[T]], left: sink SumTree[T], right: sink SumTree[T]): SumTree[T] =
+  let height = left.asNode.height + 1
+
+  var childSummaries: seq[T.summaryType] = @[]
+  childSummaries.add(left.asNode.mSummary.clone())
+  childSummaries.add(right.asNode.mSummary.clone())
+
+  var sum = childSummaries[0].clone()
+  for i in 1..childSummaries.high:
+    sum.addSummary(childSummaries[i])
+
+  var childTrees = @[left.move, right.move]
+
+  SumTree[T](
+    Arc[Node[T]].new(
+      Node[T](
+        kind: Internal,
+        mHeight: height,
+        mSummary: sum,
+        mSummaries: childSummaries,
+        mChildren: childTrees,
+      )
+    )
+  )
+
+proc append*[T: Item](tree: var SumTree[T], other: sink SumTree[T]) =
+  if tree.isEmpty:
+    tree = other.move
+  elif other.asNode.isInternal or other.asNode.mItems.len > 0:
+    if tree.asNode.height < other.asNode.height:
+      assert other.asNode.isInternal
+      for tree in other.asNode.childTrees:
+        discard
+
+    else:
+      var splitTree = tree.pushTreeRecursive(other.move)
+      if splitTree.isSome:
+        tree = SumTree[T].fromChildTrees(tree.clone(), splitTree.get.move)
 
 func initCursor*[T: Item](tree {.byref.}: SumTree[T], D: typedesc[Dimension]): Cursor[T, D] =
   result.tree = tree
@@ -425,6 +594,8 @@ when isMainModule:
     max: Max
     # zeroes: int
 
+  func clone(a: TestSummary): TestSummary = a
+
   func `$`(a: Count): string {.borrow.}
   func `+=`(a: var Count, b: Count) {.borrow.}
   func addSummary(a: var Count, b: Count) = a = (a.int + b.int).Count
@@ -473,7 +644,9 @@ when isMainModule:
 
   # var tree = SumTree[int].new([0, 1, 1, 2, 3, 5, 8, 13, 21, 34])
   var tree = SumTree[int].new([8, 0, 5, 1, 21, 3, 34, 2, 1, 13, 2])
+  var tree2 = SumTree[int].new([6, 4, 12, 9])
   echo tree.pretty
+  echo tree2.pretty
 
   proc testCursor[T: Dimension](steps: seq[(T, Bias)]) =
     var cursor = tree.initCursor (Count, Max)
@@ -483,28 +656,28 @@ when isMainModule:
       # echo prefix, s, ", ", cursor.seekForward(s[0], s[1]), " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
       echo prefix, s, ", ", cursor.summary(Max, s[0], s[1]), ", ", cursor.first, ", ", cursor.last, " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
 
-  testCursor @[(0.Count, Left)]
-  testCursor @[(1.Count, Left)]
-  testCursor @[(2.Count, Left)]
-  testCursor @[(3.Count, Left)]
-  testCursor @[(4.Count, Left)]
-  testCursor @[(5.Count, Left)]
-  testCursor @[(6.Count, Left)]
-  testCursor @[(7.Count, Left)]
-  testCursor @[(8.Count, Left)]
+  # testCursor @[(0.Count, Left)]
+  # testCursor @[(1.Count, Left)]
+  # testCursor @[(2.Count, Left)]
+  # testCursor @[(3.Count, Left)]
+  # testCursor @[(4.Count, Left)]
+  # testCursor @[(5.Count, Left)]
+  # testCursor @[(6.Count, Left)]
+  # testCursor @[(7.Count, Left)]
+  # testCursor @[(8.Count, Left)]
 
-  testCursor @[(0.Count, Right)]
-  testCursor @[(1.Count, Right)]
-  testCursor @[(2.Count, Right)]
-  testCursor @[(3.Count, Right)]
-  testCursor @[(4.Count, Right)]
-  testCursor @[(5.Count, Right)]
-  testCursor @[(6.Count, Right)]
-  testCursor @[(7.Count, Right)]
-  testCursor @[(8.Count, Right)]
+  # testCursor @[(0.Count, Right)]
+  # testCursor @[(1.Count, Right)]
+  # testCursor @[(2.Count, Right)]
+  # testCursor @[(3.Count, Right)]
+  # testCursor @[(4.Count, Right)]
+  # testCursor @[(5.Count, Right)]
+  # testCursor @[(6.Count, Right)]
+  # testCursor @[(7.Count, Right)]
+  # testCursor @[(8.Count, Right)]
 
-  testCursor @[(2.Count, Left), (5.Count, Left), (9.Count, Left), (10.Count, Left), (11.Count, Left)]
-  testCursor @[(2.Count, Right), (5.Count, Right), (9.Count, Right), (10.Count, Right), (11.Count, Right)]
+  # testCursor @[(2.Count, Left), (5.Count, Left), (9.Count, Left), (10.Count, Left), (11.Count, Left)]
+  # testCursor @[(2.Count, Right), (5.Count, Right), (9.Count, Right), (10.Count, Right), (11.Count, Right)]
 
   # testCursor @[(0.Max, Left)]
   # testCursor @[(1.Max, Left)]
@@ -518,3 +691,14 @@ when isMainModule:
   echo cursor.seekForward(3.Count, Right), " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
 
 
+  echo "--- tree 1"
+  echo tree.pretty
+  # echo tree.leftmostLeaf.pretty
+  # echo tree.rightmostLeaf.pretty
+
+  echo "--- tree 2"
+  echo tree2.pretty
+  echo "--- append"
+  tree.append tree2.clone()
+  echo "--- tree new"
+  echo tree.pretty

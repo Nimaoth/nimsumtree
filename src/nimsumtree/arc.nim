@@ -1,9 +1,11 @@
-import std/[sequtils, options, strutils]
+import std/[sequtils, strutils]
 import clone
 
 export clone
 
 const debugCustomArc {.booldefine.} = false
+when debugCustomArc:
+  import strformat
 
 var idCounter = 0
 
@@ -18,7 +20,7 @@ type
 proc `=copy`*[T](a: var Arc[T], b: Arc[T]) {.error.}
 proc `=dup`*[T](a: Arc[T]): Arc[T] {.error.}
 
-proc `=destroy`*[T](a: Arc[T]) =
+proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
   if a.count.isNil or a.value.isNil:
     return
 
@@ -31,14 +33,29 @@ proc `=destroy`*[T](a: Arc[T]) =
     when debugCustomArc:
       echo "destroy arc value ", a.id[], ", count: ", a.count[]
 
-    # todo
-    # `=destroy`(a.value[])
+    try:
+      `=destroy`(a.value[])
+      `=wasMoved`(a.value[])
+    except Exception:
+      discard
 
 proc `$`*[T](arc {.byref.}: Arc[T]): string =
   when debugCustomArc:
-    &"Arc(_{arc.id[]}, {arc.value[]})"
+    "Arc(_" & $arc.id[] & ", " & $arc.value[] & ")"
   else:
-    &"Arc({arc.value[]})"
+    "Arc(" & $arc.value[] & ")"
+
+proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
+  when debugCustomArc:
+    inc idCounter
+    echo "Arc.new _", idCounter
+    result.id = new int
+    result.id[] = idCounter
+
+  result.count = new int
+  result.count[] = 1
+  result.value = new T
+  result.value[] = default.move
 
 proc new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
   when debugCustomArc:
@@ -53,6 +70,7 @@ proc new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
   result.value[] = default.move
 
 proc new*[T](A: typedesc[Arc[T]]): Arc[T] = A.new(T.default)
+proc new*(A: typedesc[Arc], T: typedesc): Arc[T] = A.new(T.default)
 
 proc clone*[T](a {.byref.}: Arc[T]): Arc[T] =
   when debugCustomArc:
@@ -82,6 +100,10 @@ func count*[T](a: Arc[T]): int =
     -1
   else:
     a.count[]
+
+func set*[T](a: var Arc[T], value: sink T) =
+  assert not a.value.isNil
+  a.value[] = value
 
 func get*[T](a: var Arc[T]): var T =
   assert not a.value.isNil

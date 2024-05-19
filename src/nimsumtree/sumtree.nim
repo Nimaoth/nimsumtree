@@ -198,14 +198,14 @@ proc clone*[T](a {.byref.}: SumTree[T]): SumTree[T] =
 proc getUnique*[T: Item](a: var SumTree[T]): var Node[T] =
   # echo &"getUnique _{a.asArc.id[]}, {a.asArc.count[]}"
   if a.asArc.count[] > 1:
-    a = SumTree[T](Arc[Node[T]].new(a.asArc.value[].clone()))
+    a = SumTree[T](Arc.new(a.asArc.value[].clone()))
   return a.asArc.value[]
 
 proc makeUnique*[T: Item](a: var SumTree[T]) =
   # echo &"makeUnique _{a.asArc.id[]}, {a.asArc.count[]}"
   if a.asArc.count > 1:
     # Note: clone the node, not the arc
-    a = SumTree[T](Arc[Node[T]].new(a.asNode.clone()))
+    a = SumTree[T](Arc.new(a.asNode.clone()))
 
 proc new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
   mixin summary
@@ -243,7 +243,7 @@ proc new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
       let childSummary = childNode.summary
       currentParentNode.get.mSummary += childSummary
       currentParentNode.get.mSummaries.add childSummary
-      currentParentNode.get.mChildren.add SumTree[T](Arc[Node[T]].new(childNode.move))
+      currentParentNode.get.mChildren.add SumTree[T](Arc.new(childNode.move))
 
       if currentParentNode.get.mChildren.len == treeChildrenMax:
         parentNodes.add currentParentNode.get.move
@@ -256,10 +256,10 @@ proc new*[T: Item](_: typedesc[SumTree[T]], items: openArray[T]): SumTree[T] =
     nodes = parentNodes.move
 
   if nodes.len == 0:
-    result = SumTree[T](Arc[Node[T]].new(newLeaf[T]()))
+    result = SumTree[T](Arc.new(newLeaf[T]()))
   else:
     assert nodes.len == 1
-    result = SumTree[T](Arc[Node[T]].new(nodes[0].move))
+    result = SumTree[T](Arc.new(nodes[0].move))
 
   # echo result.pretty
   # echo "-----------------"
@@ -370,7 +370,7 @@ proc pushTreeRecursive*[T: Item](tree: var SumTree[T], other: sink SumTree[T]): 
       node.mChildren = leftTrees
 
 
-      return some(SumTree[T](Arc[Node[T]].new(Node[T](
+      return some(SumTree[T](Arc.new(Node[T](
         kind: Internal,
         mHeight: node.mHeight,
         mSummary: rightSummaries.sum(),
@@ -429,7 +429,7 @@ proc pushTreeRecursive*[T: Item](tree: var SumTree[T], other: sink SumTree[T]): 
       node.mSummaries = leftSummaries
       node.mItems = leftItems
 
-      return some(SumTree[T](Arc[Node[T]].new(Node[T](
+      return some(SumTree[T](Arc.new(Node[T](
         kind: Leaf,
         mSummary: rightSummaries.sum(),
         mSummaries: rightSummaries,
@@ -462,7 +462,7 @@ proc fromChildTrees*[T: Item](_: typedesc[SumTree[T]], left: sink SumTree[T], ri
   childTrees.add right.move
 
   result = SumTree[T](
-    Arc[Node[T]].new(
+    Arc.new(
       Node[T](
         kind: Internal,
         mHeight: height.uint8,

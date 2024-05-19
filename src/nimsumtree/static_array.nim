@@ -95,7 +95,7 @@ template toOpenArray*[T; C: static int](arr: Array[T, C]): openArray[T] =
 template toOpenArray*[T; C: static int](arr: Array[T, C], first, last: int): openArray[T] =
   arr.data.toOpenArray(first, last)
 
-func clone*[T: Clone; C: static int](arr: Array[T, C]): Array[T, C] =
+proc clone*[T: Clone; C: static int](arr: Array[T, C]): Array[T, C] =
   result.len = arr.len
   for i in 0..<arr.len.int:
     result.data[i] = arr.data[i].clone()

@@ -6,10 +6,10 @@ when isMainModule:
   import test/test_summary
 
   # var tree = SumTree[int].new([0, 1, 1, 2, 3, 5, 8, 13, 21, 34])
-  # var tree = SumTree[int].new([8, 0, 5, 1, 21, 3, 34, 2, 1, 13, 2])
-  # var tree2 = SumTree[int].new([6, 4, 12, 9])
-  var tree = SumTree[int].new([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-  var tree2 = SumTree[int].new([15, 16, 17, 18, 19])
+  var tree = SumTree[int, treeChildrenMax].new([8, 0, 5, 1, 21, 3, 34, 2, 1, 13, 2])
+  var tree2 = SumTree[int, treeChildrenMax].new([6, 4, 12, 9])
+  # var tree = SumTree[int, treeChildrenMax].new([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+  # var tree2 = SumTree[int, treeChildrenMax].new([15, 16, 17, 18, 19])
   echo tree.pretty
   echo tree2.pretty
 
@@ -31,14 +31,14 @@ when isMainModule:
   # testCursor @[(7.Count, Left)]
   # testCursor @[(8.Count, Left)]
 
-  # testCursor @[(0.Count, Right)]
-  # testCursor @[(1.Count, Right)]
-  # testCursor @[(2.Count, Right)]
-  # testCursor @[(3.Count, Right)]
-  # testCursor @[(4.Count, Right)]
-  # testCursor @[(5.Count, Right)]
-  # testCursor @[(6.Count, Right)]
-  # testCursor @[(7.Count, Right)]
+  testCursor @[(0.Count, Right)]
+  testCursor @[(1.Count, Right)]
+  testCursor @[(2.Count, Right)]
+  testCursor @[(3.Count, Right)]
+  testCursor @[(4.Count, Right)]
+  testCursor @[(5.Count, Right)]
+  testCursor @[(6.Count, Right)]
+  testCursor @[(7.Count, Right)]
   testCursor @[(8.Count, Right)]
 
   # testCursor @[(2.Count, Left), (5.Count, Left), (9.Count, Left), (10.Count, Left), (11.Count, Left)]

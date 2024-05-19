@@ -2,8 +2,8 @@ import std/[macros, strformat, options]
 import clone
 
 type
-  Array*[T; Cap: static int] = object
-    data: array[Cap, T]
+  Array*[T; C: static int] = object
+    data: array[C, T]
     len: uint8
 
 func initArray*(T: typedesc, capacity: static int): Array[T, capacity] =

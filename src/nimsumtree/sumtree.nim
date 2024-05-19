@@ -522,17 +522,10 @@ proc seekInternal[T: Item; D: Dimension; Target; Aggregate](
       position: D.default,
     )
 
-  var iterations = 0
-
   var ascending = false
   block outer:
     while self.stack.len > 0:
-      defer:
-        inc iterations
       block inner:
-
-        if iterations == 15:
-          break outer
 
         debugf"loop {self.stack.len}, ascending: {ascending}, {self}"
 

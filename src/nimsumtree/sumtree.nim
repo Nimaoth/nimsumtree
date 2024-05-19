@@ -1,4 +1,4 @@
-import std/[macros, strformat, sequtils, options, strutils]
+import std/[macros, strformat, sequtils, options, strutils, sugar]
 import arc, static_array
 
 export arc, static_array
@@ -73,6 +73,7 @@ proc `=dup`*[T](a: Node[T]): Node[T] {.error.}
 proc `=copy`*[T](a: var SumTree[T], b: SumTree[T]) {.error.}
 proc `=dup`*[T](a: SumTree[T]): SumTree[T] {.error.}
 
+# impl SeekAggregate for tuple[]
 proc beginLeaf*(a: var tuple[]) = discard
 proc endLeaf*(a: var tuple[]) = discard
 proc pushItem*[T; S](a: var tuple[], item: T, summary: S) = discard
@@ -81,6 +82,7 @@ proc pushTree*[T; S](a: var tuple[], tree: SumTree[T], summary: S) = discard
 type SummarySeekAggregate*[D] = object
   value: D
 
+# impl SeekAggregate for SummarySeekAggregate
 proc beginLeaf*[D](a: var SummarySeekAggregate[D]) = discard
 proc endLeaf*[D](a: var SummarySeekAggregate[D]) = discard
 
@@ -132,6 +134,9 @@ func height*[T: Item](node: Node[T]): int =
     node.mHeight.int
   of Leaf:
     0
+
+func isLeaf*[T: Item](tree: SumTree[T]): bool = tree.asNode.isLeaf
+func isInternal*[T: Item](tree: SumTree[T]): bool = tree.asNode.isInternal
 
 func height*[T: Item](tree: SumTree[T]): int = tree.asNode.height
 
@@ -510,6 +515,8 @@ func reset*(self: var Cursor) =
 proc seekInternal[T: Item; D: Dimension; Target; Aggregate](
     self: var Cursor[T, D], target: Target, bias: Bias, aggregate: var Aggregate): bool =
 
+  mixin addSummary
+
   template debugf(str: string): untyped =
     # echo "  ".repeat(self.stack.len) & &(str)
     discard
@@ -622,6 +629,92 @@ proc seekForward*[T: Item; D: Dimension; Target](
   var agg = ()
   self.seekInternal(target, bias, agg)
 
+proc nextInternal[T: Item; D: Dimension](self: var Cursor[T, D], filterNode: proc(s: T.summaryType): bool) =
+  ## Moves the cursor to the next leaf
+
+  template debugf(str: string): untyped =
+    # echo "  ".repeat(self.stack.len) & &(str)
+    discard
+
+  debugf"nextInternal {self}"
+
+  var descend = false
+
+  if self.stack.len == 0:
+    if not self.atEnd:
+      self.stack.add StackEntry[T, D](
+        tree: self.tree,
+        index: 0,
+        position: D.default,
+      )
+      descend = true
+    self.didSeek = true
+
+  block outer:
+    while self.stack.len > 0:
+      debugf"loop {self.stack.len}, descend: {descend}, {self}"
+
+      template entry: untyped = self.stack[self.stack.high]
+      let node {.cursor.} = entry.tree.asNode
+
+      case node.kind
+      of Internal:
+        if not descend:
+          debugf"ascending 1: {entry.index}, {self.stack[self.stack.high].index}"
+          entry.index += 1
+          entry.position = self.position.clone()
+
+        while entry.index < node.mSummaries.len:
+          let nextSummary {.cursor.} = node.mSummaries[entry.index]
+
+          if filterNode(nextSummary):
+            break
+          else:
+            entry.index += 1
+            entry.position.addSummary(nextSummary)
+            self.position.addSummary(nextSummary)
+
+
+        if entry.index < node.mChildren.len:
+          descend = true
+          self.stack.add StackEntry[T, D](
+            tree: node.mChildren[entry.index],
+            index: 0,
+            position: self.position.clone(),
+          )
+
+        else:
+          descend = false
+          discard self.stack.pop()
+
+      of Leaf:
+        debugf"leaf: {node.mItems}"
+        if not descend:
+          debugf"{entry}"
+          let itemSummary {.cursor.} = node.mSummaries[entry.index]
+          entry.index += 1
+          entry.position.addSummary(itemSummary)
+          self.position.addSummary(itemSummary)
+
+        while entry.index < node.mItems.len:
+          let nextItemSummary {.cursor.} = node.mSummaries[entry.index]
+          if filterNode(nextItemSummary):
+            return
+          else:
+            entry.index += 1
+            entry.position.addSummary(nextItemSummary)
+            self.position.addSummary(nextItemSummary)
+
+        descend = false
+        discard self.stack.pop()
+
+    self.atEnd = self.stack.len == 0
+
+proc next*[T: Item; D: Dimension](self: var Cursor[T, D]) =
+  ## Moves the cursor to the next leaf
+
+  self.nextInternal((_: T.summaryType) => true)
+
 proc summary*[T: Item; D: Dimension; Target](
     self: var Cursor[T, D], Output: typedesc[Dimension], `end`: Target, bias: Bias): Output =
   ## Advances the cursor to `end` and returns the aggregated value of the `Output` dimension
@@ -640,7 +733,7 @@ func itemSummary*[T: Item, D: Dimension](self: Cursor[T, D]): Option[T.summaryTy
     let node {.cursor.} = entry.tree.asNode
     case node.kind
     of Leaf:
-      if entry.index == node.mSummaries.len:
+      if entry.index >= node.mSummaries.len:
         return T.summaryType.none
       else:
         return node.mSummaries[entry.index].some
@@ -672,7 +765,7 @@ func item*[T: Item, D: Dimension](self: Cursor[T, D]): Option[T] =
     let node {.cursor.} = entry.tree.asNode
     case node.kind
     of Leaf:
-      if entry.index == node.mItems.len:
+      if entry.index >= node.mItems.len:
         return T.none
       else:
         return node.mItems[entry.index].some
@@ -680,3 +773,28 @@ func item*[T: Item, D: Dimension](self: Cursor[T, D]): Option[T] =
       assert false, "Stack top should contain leaf node"
 
   return T.none
+
+# impl Dimension for tuple[]
+proc addSummary*[S](a: var tuple[], summary: S) = discard
+proc fromSummary*[S](_: typedesc[tuple[]], summary: S): tuple[] = ()
+
+proc toSeq*[T: Item](self: SumTree[T]): seq[T] =
+  # echo self.pretty
+  var cursor = self.initCursor tuple[]
+  cursor.next()
+  var i = cursor.item
+  while i.isSome:
+    result.add i.get.clone()
+    cursor.next()
+    i = cursor.item
+
+iterator items*[T: Item](self: SumTree[T]): T =
+  var cursor = self.initCursor tuple[]
+  cursor.next()
+  while cursor.stack.len > 0:
+    let entry {.cursor.} = cursor.stack[cursor.stack.high]
+    if entry.index >= entry.tree.asNode.mItems.len:
+      break
+
+    yield cursor.stack[cursor.stack.high].tree.asNode.mItems[entry.index]
+    cursor.next()

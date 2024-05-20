@@ -100,7 +100,8 @@ proc endLeaf*[D](a: var SummarySeekAggregate[D]) = discard
 proc pushItem*[D; T; S](a: var SummarySeekAggregate[D], item: T, summary: S) =
   a.value.addSummary(summary)
 
-proc pushTree*[D; T; S: Summary; C: static int](a: var SummarySeekAggregate[D], self: ArcNode[T, C], summary: S) =
+proc pushTree*[D; T; S: Summary; C: static int](
+    a: var SummarySeekAggregate[D], self: ArcNode[T, C], summary: S) =
   a.value.addSummary(summary)
 
 proc `$`*[T: Item; C: static int](node {.byref.}: Node[T, C]): string =
@@ -109,9 +110,13 @@ proc `$`*[T: Item; C: static int](node {.byref.}: Node[T, C]): string =
     &"Internal(h: {node.mHeight}, {node.mSummary}, children: {node.mChildren.len})"
   of Leaf:
     &"Leaf({node.mSummary}, items: {node.mItems.len})"
+
 proc `$`*[T: Item; C: static int](tree {.byref.}: SumTree[T, C]): string = $tree.root
+
 proc `$`*(entry: StackEntry): string = &"(p: {entry.position}, i: {entry.index})"
-proc `$`*(cursor: Cursor): string = &"Cursor(p: {cursor.position}, s: {cursor.didSeek}, e: {cursor.atEnd}, st: {cursor.stack})"
+
+proc `$`*(cursor: Cursor): string =
+  &"Cursor(p: {cursor.position}, s: {cursor.didSeek}, e: {cursor.atEnd}, st: {cursor.stack})"
 
 func pretty*[T: Item; C: static int](node {.byref.}: Node[T, C], id: int = 0, count: int = 0): string =
   case node.kind:
@@ -280,7 +285,9 @@ proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: openArray[T
     var tempNodes = nodes.move
     for childNode in tempNodes.mitems:
       if currentParentNode.isNone:
-        currentParentNode = some Node[T, C](kind: Internal, mSummary: T.summaryType.default, mHeight: height)
+        currentParentNode = some Node[T, C](
+          kind: Internal, mSummary: T.summaryType.default, mHeight: height
+        )
 
       let childSummary = childNode.summary
       currentParentNode.get.mSummary += childSummary
@@ -326,7 +333,9 @@ func leftmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent 
 func rightmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent ArcNode[T, C] =
   return self.root.rightmostLeaf
 
-proc pushTreeRecursive[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNode[T, C]): Option[ArcNode[T, C]] =
+proc pushTreeRecursive[T: Item; C: static int](
+    self: var ArcNode[T, C], other: sink ArcNode[T, C]): Option[ArcNode[T, C]] =
+
   template debugf(str: static string): untyped =
     when debugAppend:
       echo indent(&str, recursion)
@@ -351,7 +360,7 @@ proc pushTreeRecursive[T: Item; C: static int](self: var ArcNode[T, C], other: s
     var treesToAppend: ChildArray[T, C]
     var newNodeSummaries = node.mSummaries.clone
 
-    debugf"height: {node.mHeight}, {otherNode.height}, d: {heightDelta}, other underflow: {otherNode.isUnderflowing}"
+    debugf"height: {node.mHeight}, {otherNode.height}, d: {heightDelta}"
     if heightDelta == 0:
       summariesToAppend = otherNode.mSummaries.clone()
       treesToAppend =  otherNode.mChildren.clone()
@@ -508,7 +517,8 @@ proc pushTreeRecursive[T: Item; C: static int](self: var ArcNode[T, C], other: s
       node.mItems.add(otherNode.mItems)
       node.mSummaries.add(otherNode.mSummaries.clone())
 
-proc fromChildTrees*[T: Item; C: static int](_: typedesc[ArcNode[T, C]], left: sink ArcNode[T, C], right: sink ArcNode[T, C]): ArcNode[T, C] =
+proc fromChildTrees*[T: Item; C: static int](
+    _: typedesc[ArcNode[T, C]], left: sink ArcNode[T, C], right: sink ArcNode[T, C]): ArcNode[T, C] =
 
   when debugAppend:
     echo indent(&"--- fromChildTrees: {left}, {right}", recursion)
@@ -569,7 +579,9 @@ proc append*[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNod
 proc append*[T: Item; C: static int](self: var SumTree[T, C], other: sink SumTree[T, C]) =
   self.root.append(other.root)
 
-func initCursor*[T: Item; C: static int](self {.byref.}: SumTree[T, C], D: typedesc[Dimension]): Cursor[T, D, C] =
+func initCursor*[T: Item; C: static int](
+    self {.byref.}: SumTree[T, C], D: typedesc[Dimension]): Cursor[T, D, C] =
+
   result.node = self.root
   result.position = D.default
   result.atEnd = self.root.isEmpty
@@ -701,7 +713,8 @@ proc seekForward*[T: Item; D: Dimension; Target; C: static int](
   var agg = ()
   self.seekInternal(target, bias, agg)
 
-proc nextInternal[T: Item; D: Dimension; C: static int](self: var Cursor[T, D, C], filterNode: proc(s: T.summaryType): bool) =
+proc nextInternal[T: Item; D: Dimension; C: static int](
+    self: var Cursor[T, D, C], filterNode: proc(s: T.summaryType): bool) =
   ## Moves the cursor to the next leaf
 
   template debugf(str: string): untyped =

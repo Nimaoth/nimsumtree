@@ -8,10 +8,10 @@ template customTest(name: string, body): untyped =
   test name:
     defer:
       assertNoLeaks()
+      GC_FullCollect()
     body
 
 proc testAppend[C: static int](iterations: int, singleOwner: bool, base: int, balance: int) =
-  GC_FullCollect()
   assertNoLeaks()
   defer:
     assertNoLeaks()

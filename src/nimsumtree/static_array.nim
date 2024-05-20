@@ -4,9 +4,10 @@ import clone
 type
   Array*[T; C: static int] = object
     data: array[C, T]
-    len: uint8
+    len: uint16
 
 func initArray*(T: typedesc, capacity: static int): Array[T, capacity] =
+  assert capacity <= typeof(Array[T, capacity].default.len).high
   result = Array[T, capacity].default
 
 func low*[T; C: static int](arr: Array[T, C]): int =
@@ -31,11 +32,13 @@ func `[]=`*[T; C: static int](arr: var Array[T, C], index: int, value: sink T) =
   arr.data[index] = value
 
 func add*[T; C: static int](arr: var Array[T, C], val: sink T) =
+  assert C <= typeof(Array[T, C].default.len).high
   assert arr.len < C
   arr.data[arr.len.int] = val.move
   inc arr.len
 
 func add*[T; C: static int](arr: var Array[T, C], vals: sink Array[T, C]) =
+  assert C <= typeof(Array[T, C].default.len).high
   assert arr.len + vals.len <= C
   for i in 0..vals.high:
     arr.data[arr.len.int + i] = vals.data[i].move
@@ -101,8 +104,10 @@ proc clone*[T: Clone; C: static int](arr: Array[T, C]): Array[T, C] =
     result.data[i] = arr.data[i].clone()
 
 func len*[T; C: static int](arr: Array[T, C]): int =
+  assert C <= typeof(Array[T, C].default.len).high
   arr.len.int
 
 func `len=`*[T; C: static int](arr: var Array[T, C], newLen: int) =
+  assert C <= typeof(Array[T, C].default.len).high
   assert newLen <= C
-  arr.len = newLen.uint8
+  arr.len = typeof(arr.len)(newLen)

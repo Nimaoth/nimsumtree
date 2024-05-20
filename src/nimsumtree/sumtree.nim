@@ -1,10 +1,15 @@
 import std/[macros, strformat, sequtils, options, strutils, sugar]
 import arc, static_array
 
-export arc, static_array
+export arc, static_array, options, strutils
 
 const treeBase {.intdefine.} = 1
 const treeChildrenMax* = treeBase * 2
+
+const debugNodeLifecycle = false
+const debugAppend = false
+
+var recursion = 0
 
 type
   Summary* = concept var a, b
@@ -34,13 +39,15 @@ type
 
   SummaryArray*[T; C: static int] = Array[T, C]
 
+  HeightType = uint16
+
   NodeKind* = enum Internal, Leaf
   Node*[T: Item; C: static int] = object
     mSummary: T.summaryType
     mSummaries: summaryArrayType(T, C)
     case kind: NodeKind
     of Internal:
-      mHeight: uint8
+      mHeight: HeightType
       mChildren: Array[Arc[Node[T, C]], C]
     of Leaf:
       mItems: Array[T, C]
@@ -118,6 +125,11 @@ func pretty*[T: Item; C: static int](node {.byref.}: Node[T, C], id: int = 0, co
 
   of Leaf:
     result = &"Leaf(_{id}, #{count}, {node.mSummary}, {node.mItems})"
+
+func pretty*[T: Item; C: static int](node{.byref.}: ArcNode[T, C]): string =
+  let id = node.id
+  let count = node.count
+  node.get.pretty(id, count)
 
 func pretty*[T: Item; C: static int](tree {.byref.}: SumTree[T, C]): string =
   let id = tree.root.id
@@ -207,6 +219,9 @@ func newLeaf*[T; C: static int](): Node[T, C] =
   Node[T, C](kind: Leaf, mSummary: Summary.default)
 
 proc clone*[T; C: static int](a {.byref.}: Node[T, C]): Node[T, C] =
+  when debugNodeLifecycle:
+    echo indent(&"Node.clone {a}", recursion)
+
   result = Node[T, C](kind: a.kind)
   result.mSummary = a.mSummary.clone()
   result.mSummaries = a.mSummaries.clone()
@@ -229,7 +244,9 @@ proc makeUnique*[T: Item; C: static int](a: var ArcNode[T, C]) =
   # echo &"makeUnique _{a.id}, {a.count}"
   if a.count > 1:
     # Note: clone the node, not the arc
-    # echo &"makeUnique _{a.id}, {a.count}"
+    when debugNodeLifecycle:
+      echo indent(&"ArcNode.makeUnique {a}", recursion)
+
     a = Arc.new(a.get.clone())
 
 proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: openArray[T]): SumTree[T, C] =
@@ -256,7 +273,7 @@ proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: openArray[T
     nodes.add Node[T, C](kind: Leaf, mSummary: s, mItems: subItems, mSummaries: summaries.move)
 
   var parentNodes: seq[Node[T, C]] = @[]
-  var height: uint8 = 0
+  var height: HeightType = 0
   while nodes.len > 1:
     inc height
     var currentParentNode = Node[T, C].none
@@ -286,7 +303,7 @@ proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: openArray[T
     assert nodes.len == 1
     result = Arc.new(nodes[0].move).toTree
 
-  # echo result.pretty
+  # echo indent(result.pretty, recursion)
   # echo "-----------------"
 
 func leftmostLeaf*[T: Item; C: static int](self {.byref.}: ArcNode[T, C]): lent ArcNode[T, C] =
@@ -311,19 +328,22 @@ func rightmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent
 
 proc pushTreeRecursive[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNode[T, C]): Option[ArcNode[T, C]] =
   template debugf(str: static string): untyped =
-    # echo indent(&str, 1)
-    discard
+    when debugAppend:
+      echo indent(&str, recursion)
 
-  debugf "pushTreeRecursive:\n- tree: {self.pretty.indent(1)}\n- other: {other.pretty.indent(1)}"
-  # echo &"pushTreeRecursive:- tree: {self}, other: {other}"
+  when debugAppend:
+    recursion += 2
+    defer:
+      recursion -= 2
 
-  # self.makeUnique()
+  # debugf"pushTreeRecursive:\n- tree: {self.pretty.indent(1)}\n- other: {other.pretty.indent(1)}"
+  debugf"pushTreeRecursive:- tree: {self}, other: {other}"
+
   template node: Node[T, C] = self.get
 
   case node.kind
   of Internal:
     debugf"--- internal"
-    # self.makeUnique()
     let otherNode {.cursor.} = other.get
 
     let heightDelta = node.height - otherNode.height
@@ -382,7 +402,7 @@ proc pushTreeRecursive[T: Item; C: static int](self: var ArcNode[T, C], other: s
             rightTrees.add node.mChildren[midpoint + i].clone()
           for i in 0..<summariesToAppend.len:
             rightSummaries.add summariesToAppend[i].clone()
-            rightTrees.add treesToAppend[midpoint + i].clone()
+            rightTrees.add treesToAppend[i].clone()
 
         elif node.mSummaries.len < midpoint:
           for i in 0..<(midpoint - node.mSummaries.len):
@@ -453,7 +473,7 @@ proc pushTreeRecursive[T: Item; C: static int](self: var ArcNode[T, C], other: s
             rightItems.add node.mItems[midpoint + i]
           for i in 0..<otherNode.mSummaries.len:
             rightSummaries.add otherNode.mSummaries[i].clone()
-            rightItems.add otherNode.mItems[midpoint + i]
+            rightItems.add otherNode.mItems[i]
 
         elif node.mSummaries.len < midpoint:
           for i in 0..<(midpoint - node.mSummaries.len):
@@ -489,10 +509,12 @@ proc pushTreeRecursive[T: Item; C: static int](self: var ArcNode[T, C], other: s
       node.mSummaries.add(otherNode.mSummaries.clone())
 
 proc fromChildTrees*[T: Item; C: static int](_: typedesc[ArcNode[T, C]], left: sink ArcNode[T, C], right: sink ArcNode[T, C]): ArcNode[T, C] =
-  # echo &"--- fromChildTrees: {left}, {right}"
-  # echo left.get.pretty
-  # echo "---"
-  # echo right.get.pretty
+
+  when debugAppend:
+    echo indent(&"--- fromChildTrees: {left}, {right}", recursion)
+    # echo indent(left.pretty, recursion)
+    # echo "---"
+    # echo indent(right.pretty, recursion)
 
   let height = left.get.height + 1
 
@@ -511,19 +533,26 @@ proc fromChildTrees*[T: Item; C: static int](_: typedesc[ArcNode[T, C]], left: s
   result = Arc.new(
     Node[T, C](
       kind: Internal,
-      mHeight: height.uint8,
+      mHeight: height.HeightType,
       mSummary: sum,
       mSummaries: childSummaries.move,
       mChildren: childTrees.move,
     )
   )
 
-  # echo "---"
-  # echo result.pretty
-  # echo "--> fromChildTrees"
+  when debugAppend:
+    # echo "---"
+    echo indent(result.pretty, recursion)
+    echo indent("--> fromChildTrees", recursion)
 
 proc append*[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNode[T, C]) =
-  # echo &"append {self}, {other}"
+  when debugAppend:
+    echo indent(&"append {self}, {other}", recursion)
+
+    recursion += 2
+    defer:
+      recursion -= 2
+
   if self.isEmpty:
     self = other.move
   elif other.get.isInternal or other.get.mItems.len > 0:

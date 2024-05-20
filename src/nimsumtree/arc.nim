@@ -5,10 +5,17 @@ export clone
 
 const debugCustomArcId {.booldefine.} = true
 const debugCustomArc {.booldefine.} = false
+const debugCustomArcLeaks {.booldefine.} = true
+
 when debugCustomArc:
   import strformat
 
 var idCounter = 0
+
+var activeArcs = 0
+
+proc assertNoLeaks*() =
+  assert activeArcs == 0
 
 type
   Arc*[T] = object
@@ -25,14 +32,19 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
   if a.count.isNil or a.value.isNil:
     return
 
+  assert a.count[] > 0
+
   dec a.count[]
 
-  when debugCustomArc:
-    echo "destroy arc _", a.id[], ", count: ", a.count[]
+  # when debugCustomArc:
+  #   echo "Arc.destroy arc _", a.id[], ", count: ", a.count[]
 
   if a.count[] == 0:
+    when debugCustomArcLeaks:
+      dec activeArcs
+
     when debugCustomArc:
-      echo "destroy arc value _", a.id[], ", count: ", a.count[]
+      echo "Arc.destroy _", a.id[], ", count: ", a.count[]
 
     {.warning[BareExcept]: off.}
     try:
@@ -44,11 +56,13 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
 
 proc `$`*[T](arc {.byref.}: Arc[T]): string =
   when debugCustomArcId or debugCustomArc:
-    "Arc(_" & $arc.id[] & ", " & $arc.value[] & ")"
+    "Arc(_" & $arc.id[] & ", #" &  $arc.count[] & ", " & $arc.value[] & ")"
   else:
-    "Arc(" & $arc.value[] & ")"
+    "Arc(#" & $arc.count[] & ", " & $arc.value[] & ")"
 
 proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
+  when debugCustomArcLeaks:
+    inc activeArcs
   when debugCustomArcId or debugCustomArc:
     inc idCounter
     when debugCustomArc:
@@ -62,6 +76,8 @@ proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
   result.value[] = default.move
 
 proc new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
+  when debugCustomArcLeaks:
+    inc activeArcs
   when debugCustomArcId or debugCustomArc:
     inc idCounter
     when debugCustomArc:
@@ -78,13 +94,15 @@ proc new*[T](A: typedesc[Arc[T]]): Arc[T] = A.new(T.default)
 proc new*(A: typedesc[Arc], T: typedesc): Arc[T] = A.new(T.default)
 
 proc clone*[T](a {.byref.}: Arc[T]): Arc[T] =
+  assert a.count != nil and a.value != nil
   when debugCustomArcId or debugCustomArc:
     result.id = a.id
+
   result.count = a.count
   result.count[] += 1
   result.value = a.value
   when debugCustomArc:
-    echo "clone _", a.id[], " -> ", a.count[]
+    echo "Arc.clone _", a.id[], " -> ", a.count[]
 
 proc getUnique*[T: Clone](a: var Arc[T]): lent T =
   if a.count[] > 1:

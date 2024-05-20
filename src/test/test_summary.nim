@@ -36,12 +36,15 @@ func addSummary*(a: var (Count, Max), b: (Count, Max)) =
   a[1] += b[1]
 func clone*(a: (Count, Max)): (Count, Max) = (a[0].clone(), a[1].clone())
 func cmp*(a: Count, b: (Count, Max)): int = cmp(a.int, b[0].int)
+func cmp*(a: Count, b: TestSummary): int = cmp(a.int, b.count.int)
 
 func addSummary*(a: var (Count, Max), b: TestSummary) =
   a[0] += b.count
   a[1] = max(a[1].int, b.max.int).Max
 
 func fromSummary*(_: typedesc[(Count, Max)], a: TestSummary): (Count, Max) = (a.count, a.max)
+
+func summary*(x: int): TestSummary = TestSummary(count: 1.Count, max: x.Max)
 
 func `+=`*(a: var TestSummary, b: TestSummary) =
   a.count += b.count
@@ -51,4 +54,4 @@ func addSummary*(a: var TestSummary, b: TestSummary) =
   a.count += b.count
   a.max = max(a.max.int, b.max.int).Max
 
-func summary*(x: int): TestSummary = TestSummary(count: 1.Count, max: x.Max)
+func fromSummary*(_: typedesc[TestSummary], a: TestSummary): TestSummary = a

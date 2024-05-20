@@ -13,6 +13,7 @@ var recursion = 0
 
 type
   Summary* = concept var a, b
+    a += b
     a.addSummary(b)
 
   Item* = concept a, type T of Clone
@@ -586,6 +587,13 @@ func initCursor*[T: Item; C: static int](
   result.position = D.default
   result.atEnd = self.root.isEmpty
 
+func initCursor*[T: Item; C: static int](
+  self {.byref.}: SumTree[T, C]): Cursor[T, tuple[], C] =
+
+  result.node = self.root
+  result.position = ()
+  result.atEnd = self.root.isEmpty
+
 func assertDidSeek*(self: Cursor) =
   assert self.didSeek
 
@@ -708,7 +716,7 @@ proc seekInternal[T: Item; D: Dimension; Target; Aggregate; C: static int](
 
 proc seekForward*[T: Item; D: Dimension; Target; C: static int](
     self: var Cursor[T, D, C], target: Target, bias: Bias): bool =
-  ## Moves the cursor to the target
+  ## Moves the cursor to the target. Returns true if the target position was found
 
   var agg = ()
   self.seekInternal(target, bias, agg)
@@ -834,6 +842,7 @@ proc first*[T: Item; D: Dimension; C: static int](self: Cursor[T, D, C]): lent D
 proc last*[T: Item; D: Dimension; C: static int](self: Cursor[T, D, C]): D =
   ## Returns the aggregated value of the current node
 
+  self.assertDidSeek
   let summary = self.itemSummary
   if summary.isSome:
     result = self.position.clone()
@@ -883,3 +892,11 @@ iterator items*[T: Item; C: static int](self: SumTree[T, C]): T =
 
     yield cursor.stack[cursor.stack.high].node.get.mItems[entry.index]
     cursor.next()
+
+func didSeek*(self: Cursor): bool =
+  ## Returns true if the cursor moved to an item
+  self.didSeek
+
+func atEnd*(self: Cursor): bool =
+  ## Returns true if the cursor at the end (no more items left)
+  self.atEnd

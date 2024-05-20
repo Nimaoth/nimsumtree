@@ -219,15 +219,17 @@ proc clone*[T; C: static int](a {.byref.}: Node[T, C]): Node[T, C] =
     result.mItems = a.mItems.clone()
 
 proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]]): SumTree[T, C] =
+  assert C mod 2 == 0
   Arc.new(newLeaf[T, C]()).toTree
 
 proc clone*[T; C: static int](a {.byref.}: SumTree[T, C]): SumTree[T, C] =
-  ArcNode[T, C](a).clone().toTree
+  a.root.clone().toTree
 
 proc makeUnique*[T: Item; C: static int](a: var ArcNode[T, C]) =
   # echo &"makeUnique _{a.id}, {a.count}"
   if a.count > 1:
     # Note: clone the node, not the arc
+    # echo &"makeUnique _{a.id}, {a.count}"
     a = Arc.new(a.get.clone())
 
 proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: openArray[T]): SumTree[T, C] =
@@ -307,26 +309,27 @@ func leftmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent 
 func rightmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent ArcNode[T, C] =
   return self.root.rightmostLeaf
 
-proc pushTreeRecursive*[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNode[T, C]): Option[ArcNode[T, C]] =
+proc pushTreeRecursive[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNode[T, C]): Option[ArcNode[T, C]] =
   template debugf(str: static string): untyped =
     # echo indent(&str, 1)
     discard
 
   debugf "pushTreeRecursive:\n- tree: {self.pretty.indent(1)}\n- other: {other.pretty.indent(1)}"
+  # echo &"pushTreeRecursive:- tree: {self}, other: {other}"
 
-  self.makeUnique()
+  # self.makeUnique()
   template node: Node[T, C] = self.get
 
   case node.kind
   of Internal:
     debugf"--- internal"
+    # self.makeUnique()
     let otherNode {.cursor.} = other.get
-
-    node.mSummary.addSummary(otherNode.mSummary)
 
     let heightDelta = node.height - otherNode.height
     var summariesToAppend: SummaryArray[T.summaryType, C]
     var treesToAppend: ChildArray[T, C]
+    var newNodeSummaries = node.mSummaries.clone
 
     debugf"height: {node.mHeight}, {otherNode.height}, d: {heightDelta}, other underflow: {otherNode.isUnderflowing}"
     if heightDelta == 0:
@@ -335,11 +338,11 @@ proc pushTreeRecursive*[T: Item; C: static int](self: var ArcNode[T, C], other: 
     elif heightDelta == 1 and not otherNode.isUnderflowing():
       debugf"not underflowing"
       summariesToAppend.add otherNode.summary.clone()
-      treesToAppend.add other
+      treesToAppend.add other.clone()
     else:
       debugf"big height delta or undeflowing"
-      var treeToAppend = node.mChildren[node.mChildren.high].pushTreeRecursive(other)
-      node.mSummaries[node.mSummaries.high] = node.mChildren[node.mChildren.high].get.summary.clone()
+      var treeToAppend = node.mChildren[node.mChildren.high].pushTreeRecursive(other.clone())
+      newNodeSummaries[newNodeSummaries.high] = node.mChildren[node.mChildren.high].get.summary.clone()
 
       if treeToAppend.isSome:
         debugf"-> {treeToAppend.get.pretty}"
@@ -361,6 +364,12 @@ proc pushTreeRecursive*[T: Item; C: static int](self: var ArcNode[T, C], other: 
       var rightTrees: ChildArray[T, C]
 
       let midpoint = (childCount + childCount mod 2) div 2
+      if midpoint == node.mSummaries.len:
+        return other.some
+
+      self.makeUnique()
+      node.mSummary.addSummary(otherNode.mSummary)
+
       block:
         debugf"midpoint: {midpoint}"
         for i in 0..<min(midpoint, node.mSummaries.len):
@@ -395,6 +404,7 @@ proc pushTreeRecursive*[T: Item; C: static int](self: var ArcNode[T, C], other: 
       debugf"right: {rightSummaries}, {rightTrees}"
 
       node.mSummary = leftSummaries.sum()
+      node.mSummaries = newNodeSummaries
       node.mSummaries = leftSummaries
       node.mChildren = leftTrees.move
 
@@ -407,6 +417,9 @@ proc pushTreeRecursive*[T: Item; C: static int](self: var ArcNode[T, C], other: 
       )))
 
     else:
+      self.makeUnique()
+      node.mSummary.addSummary(otherNode.mSummary)
+      node.mSummaries = newNodeSummaries
       node.mSummaries.add summariesToAppend
       node.mChildren.add treesToAppend
       debugf"extend internal {self.pretty}"
@@ -424,6 +437,11 @@ proc pushTreeRecursive*[T: Item; C: static int](self: var ArcNode[T, C], other: 
       var rightItems: ItemArray[T, C]
 
       let midpoint = (childCount + childCount mod 2) div 2
+      if midpoint == node.mSummaries.len:
+        return other.some
+
+      self.makeUnique()
+
       block:
         for i in 0..<min(midpoint, node.mSummaries.len):
           leftSummaries.add node.mSummaries[i]
@@ -465,15 +483,16 @@ proc pushTreeRecursive*[T: Item; C: static int](self: var ArcNode[T, C], other: 
       )))
 
     else:
+      self.makeUnique()
       node.mSummary.addSummary(otherNode.mSummary)
       node.mItems.add(otherNode.mItems)
       node.mSummaries.add(otherNode.mSummaries.clone())
 
 proc fromChildTrees*[T: Item; C: static int](_: typedesc[ArcNode[T, C]], left: sink ArcNode[T, C], right: sink ArcNode[T, C]): ArcNode[T, C] =
   # echo &"--- fromChildTrees: {left}, {right}"
-  # echo left.pretty
+  # echo left.get.pretty
   # echo "---"
-  # echo right.pretty
+  # echo right.get.pretty
 
   let height = left.get.height + 1
 

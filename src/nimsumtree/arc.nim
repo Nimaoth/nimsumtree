@@ -3,6 +3,7 @@ import clone
 
 export clone
 
+const debugCustomArcId {.booldefine.} = true
 const debugCustomArc {.booldefine.} = false
 when debugCustomArc:
   import strformat
@@ -11,7 +12,7 @@ var idCounter = 0
 
 type
   Arc*[T] = object
-    when debugCustomArc:
+    when debugCustomArcId or debugCustomArc:
       id: ref int
     # todo: properly implement this stuff
     count: ref int
@@ -27,28 +28,31 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
   dec a.count[]
 
   when debugCustomArc:
-    echo "destroy arc ", a.id[], ", count: ", a.count[]
+    echo "destroy arc _", a.id[], ", count: ", a.count[]
 
   if a.count[] == 0:
     when debugCustomArc:
-      echo "destroy arc value ", a.id[], ", count: ", a.count[]
+      echo "destroy arc value _", a.id[], ", count: ", a.count[]
 
+    {.warning[BareExcept]: off.}
     try:
       `=destroy`(a.value[])
       `=wasMoved`(a.value[])
-    except Exception:
+    except:
       discard
+    {.warning[BareExcept]: on.}
 
 proc `$`*[T](arc {.byref.}: Arc[T]): string =
-  when debugCustomArc:
+  when debugCustomArcId or debugCustomArc:
     "Arc(_" & $arc.id[] & ", " & $arc.value[] & ")"
   else:
     "Arc(" & $arc.value[] & ")"
 
 proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
-  when debugCustomArc:
+  when debugCustomArcId or debugCustomArc:
     inc idCounter
-    echo "Arc.new _", idCounter
+    when debugCustomArc:
+      echo "Arc.new _", idCounter
     result.id = new int
     result.id[] = idCounter
 
@@ -58,9 +62,10 @@ proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
   result.value[] = default.move
 
 proc new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
-  when debugCustomArc:
+  when debugCustomArcId or debugCustomArc:
     inc idCounter
-    echo "Arc.new _", idCounter
+    when debugCustomArc:
+      echo "Arc.new _", idCounter
     result.id = new int
     result.id[] = idCounter
 
@@ -73,7 +78,7 @@ proc new*[T](A: typedesc[Arc[T]]): Arc[T] = A.new(T.default)
 proc new*(A: typedesc[Arc], T: typedesc): Arc[T] = A.new(T.default)
 
 proc clone*[T](a {.byref.}: Arc[T]): Arc[T] =
-  when debugCustomArc:
+  when debugCustomArcId or debugCustomArc:
     result.id = a.id
   result.count = a.count
   result.count[] += 1
@@ -87,7 +92,7 @@ proc getUnique*[T: Clone](a: var Arc[T]): lent T =
   return a.value[]
 
 func id*[T](a: Arc[T]): int =
-  when debugCustomArc:
+  when debugCustomArcId or debugCustomArc:
     if a.id.isNil:
       -1
     else:

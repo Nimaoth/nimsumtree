@@ -109,7 +109,7 @@ template mapIt*[T](self: Option[T], op: untyped): untyped =
       var it{.inject.}: typeof(self.get, typeOfProc);
       op), typeOfProc)
   if self.isSome:
-    let it {.inject.} = self.get
+    let it {.cursor, inject.} = self.get
     some(op)
   else:
     OutType.none
@@ -287,7 +287,7 @@ proc makeUnique*[T: Item; C: static int](a: var ArcNode[T, C]) =
 
     a = Arc.new(a.get.clone())
 
-proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: openArray[T]): SumTree[T, C] =
+proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: sink seq[T]): SumTree[T, C] =
   mixin summary
   mixin `+=`
   mixin addSummary
@@ -299,7 +299,7 @@ proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: openArray[T
     var subItems: ItemArray[T, C]
     subItems.len = endIndex - i
     for k in 0..<subItems.len:
-      subItems[k] = items[i + k]
+      subItems[k] = items[i + k].move
 
     i = endIndex
 
@@ -886,7 +886,25 @@ proc last*[T: Item; D; C: static int](self: Cursor[T, D, C]): D =
   else:
     result = self.position.clone()
 
-func item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T] =
+func item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+  # Returns the current item, or none if path the end
+
+  self.assertDidSeek
+  if self.stack.len > 0:
+    let entry {.cursor.} = self.stack[self.stack.high]
+    let node {.cursor.} = entry.node.get
+    case node.kind
+    of Leaf:
+      if entry.index >= node.mItems.len:
+        return (ptr T).none
+      else:
+        return entry.node.get.mItems[entry.index].addr.some
+    of Internal:
+      assert false, "Stack top should contain leaf node"
+
+  return (ptr T).none
+
+func itemClone*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T] =
   # Returns the current item, or none if path the end
 
   self.assertDidSeek
@@ -898,7 +916,7 @@ func item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T] =
       if entry.index >= node.mItems.len:
         return T.none
       else:
-        return node.mItems[entry.index].some
+        return entry.node.get.mItems[entry.index].clone.some
     of Internal:
       assert false, "Stack top should contain leaf node"
 
@@ -914,11 +932,11 @@ proc toSeq*[T: Item; C: static int](self: SumTree[T, C]): seq[T] =
   cursor.next()
   var i = cursor.item
   while i.isSome:
-    result.add i.get.clone()
+    result.add i.get[].clone()
     cursor.next()
     i = cursor.item
 
-iterator items*[T: Item; C: static int](self: SumTree[T, C]): T =
+iterator items*[T: Item; C: static int](self: SumTree[T, C]): lent T =
   var cursor = self.initCursor tuple[]
   cursor.next()
   while cursor.stack.len > 0:
@@ -926,7 +944,8 @@ iterator items*[T: Item; C: static int](self: SumTree[T, C]): T =
     if entry.index >= entry.node.get.mItems.len:
       break
 
-    yield cursor.stack[cursor.stack.high].node.get.mItems[entry.index]
+    let p = addr cursor.stack[cursor.stack.high].node.get.mItems[entry.index]
+    yield p[]
     cursor.next()
 
 func didSeek*(self: Cursor): bool =

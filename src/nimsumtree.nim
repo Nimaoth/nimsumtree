@@ -6,8 +6,8 @@ when isMainModule:
   import test/test_summary
 
   # var tree = SumTree[int].new([0, 1, 1, 2, 3, 5, 8, 13, 21, 34])
-  var tree = SumTree[int, treeChildrenMax].new([8, 0, 5, 1, 21, 3, 34, 2, 1, 13, 2])
-  var tree2 = SumTree[int, treeChildrenMax].new([6, 4, 12, 9])
+  var tree = SumTree[int, treeChildrenMax].new(@[8, 0, 5, 1, 21, 3, 34, 2, 1, 13, 2])
+  var tree2 = SumTree[int, treeChildrenMax].new(@[6, 4, 12, 9])
   # var tree = SumTree[int, treeChildrenMax].new([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
   # var tree2 = SumTree[int, treeChildrenMax].new([15, 16, 17, 18, 19])
   echo tree.pretty
@@ -19,7 +19,7 @@ when isMainModule:
     for i, s in steps:
       let prefix = if i == 0: "--- " else: "    "
       # echo prefix, s, ", ", cursor.seekForward(s[0], s[1]), " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
-      echo prefix, s, ", ", cursor.summary(Max, s[0], s[1]), ", ", cursor.first, ", ", cursor.last, " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
+      echo prefix, s, ", ", cursor.summary(Max, s[0], s[1]), ", ", cursor.first, ", ", cursor.last, " -> ", cursor.itemClone, " | ", cursor.itemSummary, " | ", cursor
 
   # testCursor @[(0.Count, Left)]
   # testCursor @[(1.Count, Left)]
@@ -53,7 +53,7 @@ when isMainModule:
 
 
   var cursor = tree.initCursor (Count, Max)
-  echo cursor.seekForward(3.Count, Right), " -> ", cursor.item, " | ", cursor.itemSummary, " | ", cursor
+  echo cursor.seekForward(3.Count, Right), " -> ", cursor.itemClone, " | ", cursor.itemSummary, " | ", cursor
 
 
   echo "--- tree 1"

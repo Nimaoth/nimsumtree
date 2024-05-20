@@ -6,24 +6,27 @@ const treeBase = 12
 # const chunkBase = 128
 # const treeBase = 12
 
-type Count* = distinct int
-type Utf* = distinct int
+type
+  Count* = distinct int
 
-type Point* = object
-  row*: uint32
-  column*: uint32
+  Point* = object
+    row*: uint32
+    column*: uint32
 
-type TextSummary* = object
-  bytes*: int
-  len*: Count
-  lines*: Point
-  firstLineChars*: uint32
-  lastLineChars*: uint32
-  longestRow*: uint32
-  longestRowChars*: uint32
+  TextSummary* = object
+    bytes*: int
+    len*: Count
+    lines*: Point
+    firstLineChars*: uint32
+    lastLineChars*: uint32
+    longestRow*: uint32
+    longestRowChars*: uint32
 
-type Chunk* = object
-   data: Array[char, chunkBase]
+  Chunk* = object
+    data: Array[char, chunkBase]
+
+proc `=copy`*(a: var Chunk, b: Chunk) {.error.}
+proc `=dup`*(a: Chunk): Chunk {.error.}
 
 func clone*(a: TextSummary): TextSummary = a
 
@@ -149,13 +152,17 @@ func summary*(x: Chunk): TextSummary =
 
   result.lastLineChars = result.lines.column
 
-type Rope* = object
-  tree*: SumTree[Chunk, treeBase]
-
 # func toArray*(arr: openArray[Chunk]): Array[Chunk, treeBase] =
 #   result.len = arr.len
 #   for i in 0..<arr.len:
 #     result[i] = arr[i]
+
+type
+  Rope* = object
+    tree*: SumTree[Chunk, treeBase]
+
+proc `=copy`*(a: var Rope, b: Rope) {.error.}
+proc `=dup`*(a: Rope): Rope {.error.}
 
 func bytes*(self: Rope): int =
   return self.tree.summary.bytes
@@ -184,7 +191,7 @@ proc offsetToPoint*(self: Rope, offset: int): Point =
   var cursor = self.tree.initCursor (int, Point)
   discard cursor.seekForward(offset, Left)
   let overshoot = offset - cursor.first[0]
-  return cursor.first[1] + cursor.item().mapIt(it.offsetToPoint(overshoot)).get(Point.default)
+  return cursor.first[1] + cursor.item().mapIt(it[].offsetToPoint(overshoot)).get(Point.default)
 
 func toArray*[T](arr: openArray[T], C: static int): Array[T, C] =
   assert arr.len <= C

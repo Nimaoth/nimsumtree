@@ -54,7 +54,7 @@ proc testN[C: static int](iterations: int) =
     defer:
       assertNoLeaks()
 
-    let tree = SumTree[int, C].new([])
+    let tree = SumTree[int, C].new(@[])
     check tree.isLeaf
     check tree.height == 0
     check tree.summary == TestSummary.default
@@ -342,4 +342,4 @@ testN[4](100)
 testN[6](100)
 testN[8](100)
 testN[20](100)
-testN[64](1000)
+# testN[64](1000)

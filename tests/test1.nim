@@ -1,4 +1,4 @@
-import std/[unittest, enumerate, strformat]
+import std/[unittest, enumerate, strformat, sugar]
 import nimsumtree/sumtree
 import test/test_summary
 
@@ -26,6 +26,8 @@ proc testAppend[C: static int](iterations: int, singleOwner: bool, base: int, ba
     else:
       numbers2.add i
 
+    let res = numbers1 & numbers2
+
     var a = SumTree[int, C].new(numbers1)
     var b = SumTree[int, C].new(numbers2)
 
@@ -35,8 +37,13 @@ proc testAppend[C: static int](iterations: int, singleOwner: bool, base: int, ba
 
     a.append b.clone()
 
+    let items = collect:
+      for i, item in enumerate(a.items):
+        item
+
     check a.summary == TestSummary(count: i.Count, max: i.Max)
-    check a.toSeq == numbers1 & numbers2
+    check a.toSeq == res
+    check items == res
 
     if not singleOwner:
       check c.toSeq == numbers1

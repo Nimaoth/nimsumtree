@@ -43,7 +43,6 @@ test "prev/next leaf":
   check c1.prevLeaf.isNone
   check c1.nextLeaf.isNone
 
-
 template customTest(name: string, body): untyped =
   test name:
     defer:
@@ -89,6 +88,19 @@ proc testAppend[C: static int](iterations: int, singleOwner: bool, base: int, ba
       check c.toSeq == numbers1
 
 proc testN[C: static int](iterations: int) =
+
+  test &"first/last C={C}":
+    var a = SumTree[int, C].new()
+    check a.first.isNone
+    check a.last.isNone
+
+    var numbers: seq[int]
+    for i in 1..iterations:
+      numbers.add i
+
+      a = SumTree[int, C].new(numbers)
+      check a.first.mapIt(it[]) == numbers[0].some
+      check a.last.mapIt(it[]) == numbers[numbers.high].some
 
   customTest "Create empty sumtree C=" & $C:
     defer:

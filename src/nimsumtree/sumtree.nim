@@ -360,11 +360,27 @@ func rightmostLeaf*[T: Item; C: static int](self {.byref.}: ArcNode[T, C]): lent
   else:
     result = self.get.mChildren[self.get.mChildren.high].rightmostLeaf
 
+func first*[T: Item; C: static int](self {.byref.}: ArcNode[T, C]): Option[ptr T] =
+  let leaf {.cursor.} = self.leftmostLeaf
+  if leaf.get.mItems.len > 0:
+    result = leaf.get.mItems[0].addr.some
+
+func last*[T: Item; C: static int](self {.byref.}: ArcNode[T, C]): Option[ptr T] =
+  let leaf {.cursor.} = self.rightmostLeaf
+  if leaf.get.mItems.len > 0:
+    result = leaf.get.mItems[leaf.get.mItems.high].addr.some
+
 func leftmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent ArcNode[T, C] =
   return self.root.leftmostLeaf
 
 func rightmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent ArcNode[T, C] =
   return self.root.rightmostLeaf
+
+func first*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): Option[ptr T] =
+  self.root.first
+
+func last*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): Option[ptr T] =
+  self.root.last
 
 proc pushTreeRecursive[T: Item; C: static int](
     self: var ArcNode[T, C], other: sink ArcNode[T, C]): Option[ArcNode[T, C]] =

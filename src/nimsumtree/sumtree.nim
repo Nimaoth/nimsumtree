@@ -918,6 +918,31 @@ func prevLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ArcNode
     if entry.index > 0:
       return entry.node.get.mChildren[entry.index - 1].rightmostLeaf.clone().some
 
+func nextItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+  if not self.didSeek:
+    result = self.node.first
+  elif self.stack.len > 0:
+    let entry {.cursor.} = self.stack[self.stack.high]
+    if entry.index == entry.node.get.mItems.high:
+      result = self.nextLeaf.mapIt(it.get.mItems.first).flatten
+    else:
+      result = entry.node.get.mItems[entry.index + 1].addr.some
+
+  elif not self.atEnd:
+    result = self.node.first
+
+func prevItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+  self.assertDidSeek
+  if self.stack.len > 0:
+    let entry {.cursor.} = self.stack[self.stack.high]
+    if entry.index == 0:
+      result = self.prevLeaf.mapIt(it.get.mItems.last).flatten
+    else:
+      result = entry.node.get.mItems[entry.index - 1].addr.some
+
+  elif self.atEnd:
+    result = self.node.last
+
 func item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
   # Returns the current item, or none if path the end
 

@@ -31,6 +31,14 @@ func `[]=`*[T; C: static int](arr: var Array[T, C], index: int, value: sink T) =
   assert index < C
   arr.data[index] = value
 
+func first*[T; C: static int](arr {.byref.}: Array[T, C]): Option[ptr T] =
+  if arr.len > 0:
+    result = arr.data[0].addr.some
+
+func last*[T; C: static int](arr {.byref.}: Array[T, C]): Option[ptr T] =
+  if arr.len > 0:
+    result = arr.data[arr.high].addr.some
+
 func add*[T; C: static int](arr: var Array[T, C], val: sink T) =
   assert C <= typeof(Array[T, C].default.len).high
   assert arr.len < C

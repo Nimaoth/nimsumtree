@@ -870,11 +870,11 @@ func itemSummary*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T.su
 
   return T.summaryType.none
 
-proc first*[T: Item; D; C: static int](self: Cursor[T, D, C]): lent D =
+proc startPos*[T: Item; D; C: static int](self: Cursor[T, D, C]): lent D =
   ## Returns the aggregated value up until, but not including the current node
   self.position
 
-proc last*[T: Item; D; C: static int](self: Cursor[T, D, C]): D =
+proc endPos*[T: Item; D; C: static int](self: Cursor[T, D, C]): D =
   ## Returns the aggregated value of the current node
   mixin addSummary
 
@@ -885,6 +885,22 @@ proc last*[T: Item; D; C: static int](self: Cursor[T, D, C]): D =
     result.addSummary(summary.get)
   else:
     result = self.position.clone()
+
+func nextLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ArcNode[T, C]] =
+  if self.stack.len > 0:
+    assert self.stack[self.stack.high].node.isLeaf
+  for i in countdown(self.stack.high - 1, 0):
+    let entry {.cursor.} = self.stack[i]
+    if entry.index < entry.node.get.mChildren.len - 1:
+      return entry.node.get.mChildren[entry.index + 1].leftmostLeaf.clone().some
+
+func prevLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ArcNode[T, C]] =
+  if self.stack.len > 0:
+    assert self.stack[self.stack.high].node.isLeaf
+  for i in countdown(self.stack.high - 1, 0):
+    let entry {.cursor.} = self.stack[i]
+    if entry.index > 0:
+      return entry.node.get.mChildren[entry.index - 1].rightmostLeaf.clone().some
 
 func item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
   # Returns the current item, or none if path the end

@@ -190,8 +190,8 @@ proc offsetToPoint*(self: Rope, offset: int): Point =
     return self.tree.summary.lines
   var cursor = self.tree.initCursor (int, Point)
   discard cursor.seekForward(offset, Left)
-  let overshoot = offset - cursor.first[0]
-  return cursor.first[1] + cursor.item().mapIt(it[].offsetToPoint(overshoot)).get(Point.default)
+  let overshoot = offset - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].offsetToPoint(overshoot)).get(Point.default)
 
 func toArray*[T](arr: openArray[T], C: static int): Array[T, C] =
   assert arr.len <= C

@@ -4,6 +4,46 @@ import test/test_summary
 
 const debugIteration {.used.} = 17
 
+test "prev/next leaf":
+  var a = SumTree[int, 2].new()
+  var c1 = a.initCursor
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.isNone
+
+  # One leaf
+  a = SumTree[int, 2].new(@[1, 2])
+  c1 = a.initCursor
+  check a.isLeaf
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.isNone
+
+  c1.next()
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.isNone
+
+  # One internal, multiple leafs
+  a = SumTree[int, 2].new(@[1, 2, 3])
+  c1 = a.initCursor
+  check a.isInternal
+  check a.height == 1
+
+  c1.next()
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.mapIt(@(it.get.childItems)) == some @[3]
+
+  c1.next()
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.mapIt(@(it.get.childItems)) == some @[3]
+
+  c1.next()
+  check c1.prevLeaf.mapIt(@(it.get.childItems)) == some @[1, 2]
+  check c1.nextLeaf.isNone
+
+  c1.next()
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.isNone
+
+
 template customTest(name: string, body): untyped =
   test name:
     defer:
@@ -131,25 +171,25 @@ proc testN[C: static int](iterations: int) =
       var c = b.initCursor
       check not c.didSeek
       check c.atEnd
-      check c.first == ()
+      check c.startPos == ()
 
     block:
       var c = b.initCursor Count
       check not c.didSeek
       check c.atEnd
-      check c.first == 0.Count
+      check c.startPos == 0.Count
 
     block:
       var c = b.initCursor (Count, Max)
       check not c.didSeek
       check c.atEnd
-      check c.first == (0.Count, 0.Max)
+      check c.startPos == (0.Count, 0.Max)
 
     block:
       var c = b.initCursor TestSummary
       check not c.didSeek
       check c.atEnd
-      check c.first == TestSummary.default
+      check c.startPos == TestSummary.default
 
   customTest "Cursor small tree C=" & $C:
     var b = SumTree[int, C].new(@[2, 5])
@@ -157,28 +197,28 @@ proc testN[C: static int](iterations: int) =
 
     check not c.didSeek
     check not c.atEnd
-    check c.first == (0.Count, 0.Max)
+    check c.startPos == (0.Count, 0.Max)
 
     c.next()
 
     check c.didSeek
     check not c.atEnd
-    check c.first == (0.Count, 0.Max)
-    check c.last == (1.Count, 2.Max)
+    check c.startPos == (0.Count, 0.Max)
+    check c.endPos == (1.Count, 2.Max)
 
     c.next()
 
     check c.didSeek
     check not c.atEnd
-    check c.first == (1.Count, 2.Max)
-    check c.last == (2.Count, 5.Max)
+    check c.startPos == (1.Count, 2.Max)
+    check c.endPos == (2.Count, 5.Max)
 
     c.next()
 
     check c.didSeek
     check c.atEnd
-    check c.first == (2.Count, 5.Max)
-    check c.last == (2.Count, 5.Max)
+    check c.startPos == (2.Count, 5.Max)
+    check c.endPos == (2.Count, 5.Max)
 
   customTest "Cursor medium tree C=" & $C:
     let numbers = @[2, 16, 5, 7, 9, 13, 4, 6, 1, 67, 54, 8, 43, 3]
@@ -187,9 +227,9 @@ proc testN[C: static int](iterations: int) =
 
     check not c.didSeek
     check not c.atEnd
-    check c.first == (0.Count, 0.Max)
+    check c.startPos == (0.Count, 0.Max)
 
-    var last = (0.Count, 0.Max)
+    var endPos = (0.Count, 0.Max)
     var m = 0
     for i in 0..<numbers.len:
       m = max(m, numbers[i])
@@ -197,15 +237,15 @@ proc testN[C: static int](iterations: int) =
       c.next()
       check c.didSeek
       check not c.atEnd
-      check c.first == last
-      check c.last == ((i + 1).Count, m.Max)
+      check c.startPos == endPos
+      check c.endPos == ((i + 1).Count, m.Max)
 
-      last = c.last
+      endPos = c.endPos
 
     c.next()
     check c.atEnd
-    check c.first == last
-    check c.last == last
+    check c.startPos == endPos
+    check c.endPos == endPos
 
   customTest "Cursor large tree C=" & $C:
     var numbers = newSeq[int]()
@@ -218,9 +258,9 @@ proc testN[C: static int](iterations: int) =
 
       check not c.didSeek
       check not c.atEnd
-      check c.first == TestSummary.default
+      check c.startPos == TestSummary.default
 
-      var last = TestSummary.default
+      var endPos = TestSummary.default
       var m = 0
       for i in 0..<numbers.len:
         m = max(m, numbers[i])
@@ -228,15 +268,15 @@ proc testN[C: static int](iterations: int) =
         c.next()
         check c.didSeek
         check not c.atEnd
-        check c.first == last
-        check c.last == TestSummary(count: (i + 1).Count, max: m.Max)
+        check c.startPos == endPos
+        check c.endPos == TestSummary(count: (i + 1).Count, max: m.Max)
 
-        last = c.last
+        endPos = c.endPos
 
       c.next()
       check c.atEnd
-      check c.first == last
-      check c.last == last
+      check c.startPos == endPos
+      check c.endPos == endPos
 
   customTest "Cursor seek forward C=" & $C:
     var numbers = newSeq[int]()

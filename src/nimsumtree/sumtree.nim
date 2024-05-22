@@ -114,11 +114,30 @@ template mapIt*[T](self: Option[T], op: untyped): untyped =
   else:
     OutType.none
 
+type End*[D] = object
+func cmp*[D: Dimension](a: End[D], b: D): int = 1
+
 # impl SeekAggregate for tuple[]
 proc beginLeaf*(a: var tuple[]) = discard
 proc endLeaf*(a: var tuple[]) = discard
 proc pushItem*[T; S](a: var tuple[], item: T, summary: S) = discard
 proc pushTree*[T; S; C: static int](a: var tuple[], self: ArcNode[T, C], summary: S) = discard
+
+type DebugSeekAggregate* = object
+
+# impl SeekAggregate for DebugSeekAggregate
+proc beginLeaf*(a: var DebugSeekAggregate) =
+  echo &"beginLeaf"
+
+proc endLeaf*(a: var DebugSeekAggregate) =
+  echo &"endLeaf"
+
+proc pushItem*[T; S](a: var DebugSeekAggregate, item: T, summary: S) =
+  echo &"pushItem {item}, {summary}"
+
+proc pushTree*[T; S: Summary; C: static int](
+    a: var DebugSeekAggregate, self: ArcNode[T, C], summary: S) =
+  echo &"pushTree {self}, {summary}"
 
 type SummarySeekAggregate*[D] = object
   value: D
@@ -135,6 +154,35 @@ proc pushTree*[D; T; S: Summary; C: static int](
     a: var SummarySeekAggregate[D], self: ArcNode[T, C], summary: S) =
   mixin addSummary
   a.value.addSummary(summary)
+
+type SliceSeekAggregate*[T; C: static int] = object
+  node: ArcNode[T, C]
+  leafItems: Array[T, C]
+  leafItemSummaries: summaryArrayType(T, C)
+  leafSummary: T.summaryType
+
+# impl SeekAggregate for SliceSeekAggregate
+proc beginLeaf*[T; C: static int](self: var SliceSeekAggregate[T, C]) = discard
+proc endLeaf*[T; C: static int](self: var SliceSeekAggregate[T, C]) =
+  self.node.append Arc.new(Node[T, C](
+    kind: Leaf,
+    mSummary: self.leafSummary.move,
+    mSummaries: self.leafItemSummaries.move,
+    mItems: self.leafItems.move,
+  ))
+
+  assert self.leafSummary == T.summaryType.default
+  assert self.leafItemSummaries == T.summaryArrayType(C).default
+
+proc pushItem*[T; S; C: static int](self: var SliceSeekAggregate[T, C], item: T, summary: S) =
+  mixin addSummary
+  self.leafItems.add item.clone()
+  self.leafItemSummaries.add summary.clone()
+  self.leafSummary += summary
+
+proc pushTree*[T; S: Summary; C: static int](
+    self: var SliceSeekAggregate[T, C], node: ArcNode[T, C], summary: S) =
+  self.node.append(node.clone())
 
 proc `$`*[T: Item; C: static int](node {.byref.}: Node[T, C]): string =
   case node.kind:
@@ -735,7 +783,7 @@ proc seekInternal[T: Item; D; Target; Aggregate; C: static int](
             let comparison = target.cmp(childEnd)
             debugf"cmp: {target} <> {childEnd} -> {comparison}"
             if comparison > 0 or (comparison == 0 and bias == Right):
-              debugf"ahead of target"
+              debugf"before of target"
               self.position = childEnd
               aggregate.pushItem(item, itemSummary)
               entry.index += 1
@@ -764,12 +812,47 @@ proc seekInternal[T: Item; D; Target; Aggregate; C: static int](
   # echo &"{target} <> {endPosition} -> {target.cmp(endPosition)}"
   return target.cmp(endPosition) == 0
 
+proc seek*[T: Item; D; Target; C: static int](
+    self: var Cursor[T, D, C], target: Target, bias: Bias): bool =
+  ## Resets and moves the cursor to the target. Returns true if the target position was found
+
+  self.reset()
+  var agg = ()
+  self.seekInternal(target, bias, agg)
+
 proc seekForward*[T: Item; D; Target; C: static int](
     self: var Cursor[T, D, C], target: Target, bias: Bias): bool =
   ## Moves the cursor to the target. Returns true if the target position was found
 
   var agg = ()
   self.seekInternal(target, bias, agg)
+
+proc summary*[T: Item; D: Dimension; Target; C: static int](
+    self: var Cursor[T, D, C], Output: typedesc[Dimension], `end`: Target, bias: Bias): Output =
+  ## Advances the cursor to `end` and returns the aggregated value of the `Output` dimension
+  ## up until, but not including `end`
+
+  var summary = SummarySeekAggregate[Output](value: Output.default)
+  discard self.seekInternal(`end`, bias, summary)
+  summary.value.move
+
+proc slice*[T: Item; D: Dimension; Target; C: static int](
+    self: var Cursor[T, D, C], `end`: Target, bias: Bias): SumTree[T, C] =
+  ## Returns a new sum tree representing covering the items from the current position
+  ## to the given end location. #todo: current node included?
+
+  var slice = SliceSeekAggregate[T, C](
+    node: Arc.new(Node[T, C](kind: Leaf)),
+    leafSummary: T.summaryType.default,
+  )
+  discard self.seekInternal(`end`, bias, slice)
+  SumTree[T, C](root: slice.node.move)
+
+proc suffix*[T: Item; D: Dimension; C: static int](
+    self: var Cursor[T, D, C]): SumTree[T, C] =
+  ## Returns a new sum tree representing the remainder of the cursors tree from the current position
+  ## to the end. #todo: current node included?
+  self.slice(End[D](), Right)
 
 proc nextInternal[T: Item; D: Dimension; C: static int](
     self: var Cursor[T, D, C], filterNode: proc(s: T.summaryType): bool) =
@@ -858,7 +941,6 @@ proc next*[T: Item; D: Dimension; C: static int](self: var Cursor[T, D, C]) =
   ## Moves the cursor to the next leaf
   self.nextInternal((_: T.summaryType) => true)
 
-
 proc prevInternal[T: Item; D: Dimension; C: static int](
     self: var Cursor[T, D, C], filterNode: proc(s: T.summaryType): bool) =
   ## Moves the cursor to the prev leaf
@@ -929,15 +1011,6 @@ proc prevInternal[T: Item; D: Dimension; C: static int](
 proc prev*[T: Item; D: Dimension; C: static int](self: var Cursor[T, D, C]) =
   ## Moves the cursor to the prev leaf
   self.prevInternal((_: T.summaryType) => true)
-
-proc summary*[T: Item; D: Dimension; Target; C: static int](
-    self: var Cursor[T, D, C], Output: typedesc[Dimension], `end`: Target, bias: Bias): Output =
-  ## Advances the cursor to `end` and returns the aggregated value of the `Output` dimension
-  ## up until, but not including `end`
-
-  var summary = SummarySeekAggregate[Output](value: Output.default)
-  discard self.seekInternal(`end`, bias, summary)
-  summary.value.move
 
 func itemSummary*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T.summaryType] =
   ## Returns the summary of the current item, or none if the cursor is past the end

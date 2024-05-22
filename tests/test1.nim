@@ -4,6 +4,19 @@ import test/test_summary
 
 const debugIteration {.used.} = 17
 
+test "seek end":
+  var a = SumTree[int, 2].new(@[1, 2])
+  var c1 = a.initCursor
+  check not c1.seekForward(End[tuple[]](), Right)
+  check c1.didSeek
+  check c1.atEnd
+
+  a = SumTree[int, 2].new(@[1, 2, 3, 4, 5])
+  c1 = a.initCursor
+  check not c1.seekForward(End[tuple[]](), Right)
+  check c1.didSeek
+  check c1.atEnd
+
 test "prev/next leaf":
   var a = SumTree[int, 2].new()
   var c1 = a.initCursor
@@ -427,6 +440,12 @@ proc testN[C: static int](iterations: int) =
     check c1.summary((Count, Max), 4.Count, Right) == (1.Count, 5.Max)
     check c1.summary((Count, Max), 4.Count, Right) == (0.Count, 0.Max)
 
+    c1.reset()
+    check c1.summary((Count, Max), 3.Count, Right) == (3.Count, 3.Max)
+    check c1.summary((Count, Max), 3.Count, Right) == (0.Count, 0.Max)
+    check c1.summary((Count, Max), End[(Count, Max)](), Right) == (3.Count, 6.Max)
+    check c1.summary((Count, Max), End[(Count, Max)](), Right) == (0.Count, 0.Max)
+
   customTest "Cursor summary small reset C=" & $C:
     var numbers = @[2, 3, 1, 5, 4, 6]
 
@@ -461,6 +480,10 @@ proc testN[C: static int](iterations: int) =
     check c1.summary((Count, Max), 6.Count, Right) == (0.Count, 0.Max)
     c1.reset()
 
+    check c1.summary((Count, Max), End[(Count, Max)](), Right) == (6.Count, 6.Max)
+    check c1.summary((Count, Max), End[(Count, Max)](), Right) == (0.Count, 0.Max)
+    c1.reset()
+
   customTest "Cursor summary large C=" & $C:
     var numbers = newSeq[int]()
 
@@ -484,6 +507,36 @@ proc testN[C: static int](iterations: int) =
         check c1 == c2
 
         m = max(m, numbers[i])
+
+    test &"suffix C=4":
+      var a = SumTree[int, C].new()
+      var c = a.initCursor Count
+
+      var b = c.suffix()
+      check b.toSeq == newSeq[int]()
+
+      a = SumTree[int, C].new(@[1, 2])
+      c = a.initCursor Count
+
+      b = c.suffix()
+      check b.toSeq == @[1, 2]
+
+      discard c.seek(1.Count, Right)
+      b = c.suffix()
+      check b.toSeq == @[2]
+
+      let numbers = collect:
+        for i in 1..100:
+          i
+
+      a = SumTree[int, C].new(numbers)
+      c = a.initCursor Count
+
+      for windowSize in 0..numbers.len:
+        for start in 0..<numbers.len - windowSize + 1:
+          discard c.seek(start.Count, Right)
+          let b = c.slice((start + windowSize).Count, Right)
+          check b.toSeq == numbers[start..<(start + windowSize)]
 
 testN[2](100)
 testN[4](100)

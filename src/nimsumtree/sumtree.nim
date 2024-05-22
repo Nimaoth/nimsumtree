@@ -856,8 +856,79 @@ proc nextInternal[T: Item; D: Dimension; C: static int](
 
 proc next*[T: Item; D: Dimension; C: static int](self: var Cursor[T, D, C]) =
   ## Moves the cursor to the next leaf
-
   self.nextInternal((_: T.summaryType) => true)
+
+
+proc prevInternal[T: Item; D: Dimension; C: static int](
+    self: var Cursor[T, D, C], filterNode: proc(s: T.summaryType): bool) =
+  ## Moves the cursor to the prev leaf
+  mixin addSummary
+
+  template debugf(str: string): untyped =
+    # echo "  ".repeat(self.stack.len) & &(str)
+    discard
+
+  debugf"prevInternal {self}"
+
+  if not self.didSeek:
+    # Wrap around to end
+    self.didSeek = true
+    self.atEnd = true
+
+  if self.atEnd:
+    self.position = D.default
+    self.atEnd = self.node.isEmpty
+    if not self.node.isEmpty:
+      self.stack.add StackEntry[T, D, C](
+        node: self.node,
+        index: self.node.get.mSummaries.len,
+        position: D.fromSummary(self.node.summary()),
+      )
+
+  var descend = false
+  while self.stack.len > 0:
+    debugf"loop {self.stack.len}, descend: {descend}, {self}"
+
+    if self.stack.len >= 2:
+      self.position = self.stack[^2].position.clone()
+    else:
+      self.position = D.default
+
+    template entry: untyped = self.stack[self.stack.high]
+    let node {.cursor.} = entry.node.get
+
+    if not descend:
+      if entry.index == 0:
+        discard self.stack.pop()
+        continue
+      else:
+        entry.index -= 1
+
+    for summary in entry.node.get.mSummaries.toOpenArray(0, entry.index - 1):
+      self.position.addSummary(summary)
+
+    entry.position = self.position.clone()
+
+    descend = filterNode(entry.node.get.mSummaries[entry.index])
+    case node.kind
+    of Internal:
+      debugf"internal: {node}"
+      if descend:
+        let tree {.cursor.} = node.mChildren[entry.index]
+        self.stack.add StackEntry[T, D, C](
+          node: tree,
+          index: tree.get.mSummaries.len - 1,
+          position: D.default,
+        )
+
+    of Leaf:
+      debugf"leaf: {node}"
+      if descend:
+        break
+
+proc prev*[T: Item; D: Dimension; C: static int](self: var Cursor[T, D, C]) =
+  ## Moves the cursor to the prev leaf
+  self.prevInternal((_: T.summaryType) => true)
 
 proc summary*[T: Item; D: Dimension; Target; C: static int](
     self: var Cursor[T, D, C], Output: typedesc[Dimension], `end`: Target, bias: Bias): Output =

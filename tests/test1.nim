@@ -91,6 +91,54 @@ test "prev/next item":
   check c1.item.isNone
   check c1.nextItem.isNone
 
+test "prev":
+  # One leaf
+  var a = SumTree[int, 2].new(@[1, 2])
+  var c1 = a.initCursor
+
+  check c1.nextItem.mapIt(it[]) == 1.some
+
+  c1.prev()
+  check c1.prevItem.mapIt(it[]) == 1.some
+  check c1.item.mapIt(it[]) == 2.some
+  check c1.nextItem.isNone
+
+  c1.prev()
+  check c1.prevItem.isNone
+  check c1.item.mapIt(it[]) == 1.some
+  check c1.nextItem.mapIt(it[]) == 2.some
+
+  c1.prev()
+  check c1.prevItem.isNone
+  check c1.item.isNone
+  check c1.nextItem.mapIt(it[]) == 1.some
+
+  # One internal, multiple leafs
+  a = SumTree[int, 2].new(@[1, 2, 3])
+  c1 = a.initCursor
+
+  check c1.nextItem.mapIt(it[]) == 1.some
+
+  c1.prev()
+  check c1.prevItem.mapIt(it[]) == 2.some
+  check c1.item.mapIt(it[]) == 3.some
+  check c1.nextItem.isNone
+
+  c1.prev()
+  check c1.prevItem.mapIt(it[]) == 1.some
+  check c1.item.mapIt(it[]) == 2.some
+  check c1.nextItem.mapIt(it[]) == 3.some
+
+  c1.prev()
+  check c1.prevItem.isNone
+  check c1.item.mapIt(it[]) == 1.some
+  check c1.nextItem.mapIt(it[]) == 2.some
+
+  c1.prev()
+  check c1.prevItem.isNone
+  check c1.item.isNone
+  check c1.nextItem.mapIt(it[]) == 1.some
+
 template customTest(name: string, body): untyped =
   test name:
     defer:

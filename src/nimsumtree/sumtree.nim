@@ -273,6 +273,9 @@ func sum*[T: Summary; C: static int](arr {.byref.}: Array[T, C]): T =
 func summary*[T: Item; C: static int](node: Node[T, C]): T.summaryType = node.mSummary
 func summary*[T: Item; C: static int](node: ArcNode[T, C]): T.summaryType = node.get.summary
 func summary*[T: Item; C: static int](tree: SumTree[T, C]): T.summaryType = tree.root.summary
+func extent*[T: Item; C: static int](tree: SumTree[T, C], D: typedesc[Dimension]): D =
+  result = D.default
+  result.addSummary(tree.root.get.mSummary)
 
 template childSummaries*[T: Item; C: static int](node: Node[T, C]): untyped =
   node.mSummaries.toOpenArray

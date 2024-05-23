@@ -190,6 +190,8 @@ proc testAppend[C: static int](iterations: int, singleOwner: bool, base: int, ba
         item
 
     check a.summary == TestSummary(count: i.Count, max: i.Max)
+    check a.extent(Count) == i.Count
+    check a.extent(Max) == i.Max
     check a.toSeq == res
     check items == res
 
@@ -249,6 +251,8 @@ proc testN[C: static int](iterations: int) =
 
     check a.height == 0
     check a.summary == TestSummary.default
+    check a.extent(Count) == 0.Count
+    check a.extent(Max) == 0.Max
     check a.toSeq == newSeq[int]()
 
   customTest "Append two trees (non-empty + empty) C=" & $C:
@@ -262,6 +266,8 @@ proc testN[C: static int](iterations: int) =
       a.append b
 
       check a.summary == TestSummary(count: i.Count, max: i.Max)
+      check a.extent(Count) == i.Count
+      check a.extent(Max) == i.Max
       check a.toSeq == numbers
 
   customTest "Append two trees (empty + non-empty) C=" & $C:
@@ -275,6 +281,8 @@ proc testN[C: static int](iterations: int) =
       a.append b
 
       check a.summary == TestSummary(count: i.Count, max: i.Max)
+      check a.extent(Count) == i.Count
+      check a.extent(Max) == i.Max
       check a.toSeq == numbers
 
   customTest &"Append two trees of different shapes C={C}":

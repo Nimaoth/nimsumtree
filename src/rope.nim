@@ -193,12 +193,6 @@ proc offsetToPoint*(self: Rope, offset: int): Point =
   let overshoot = offset - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].offsetToPoint(overshoot)).get(Point.default)
 
-func toArray*[T](arr: openArray[T], C: static int): Array[T, C] =
-  assert arr.len <= C
-  result.len = arr.len
-  for i in 0..<arr.len:
-    result[i] = arr[i]
-
 proc new*(_: typedesc[Rope], value: string = ""): Rope =
   var chunks = newSeq[Chunk]()
 

@@ -93,7 +93,8 @@ template mapIt*[T; C: static int](arr: Array[T, C], op: untyped): untyped =
     res
 
 proc `$`*[T; C: static int](arr {.byref.}: Array[T, C]): string =
-  result = "Array[" & $T & ", " & $C & "]("
+  # result = "Array[" & $T & ", " & $C & "]("
+  result = "("
   for i in 0..<arr.len.int:
     if i > 0:
       result.add ", "
@@ -119,3 +120,9 @@ func `len=`*[T; C: static int](arr: var Array[T, C], newLen: int) =
   assert C <= typeof(Array[T, C].default.len).high
   assert newLen <= C
   arr.len = typeof(arr.len)(newLen)
+
+func toArray*[T](arr: openArray[T], C: static int): Array[T, C] =
+  assert arr.len <= C
+  result.len = typeof(result.len)(arr.len)
+  for i in 0..<arr.len:
+    result[i] = arr[i]

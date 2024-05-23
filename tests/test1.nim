@@ -198,7 +198,48 @@ proc testAppend[C: static int](iterations: int, singleOwner: bool, base: int, ba
     if not singleOwner:
       check c.toSeq == numbers1
 
+proc testAdd[C: static int](iterations: int, singleOwner: bool) =
+  customTest &"testAdd {iterations}, {singleOwner}":
+    var numbers: seq[int]
+    var a = SumTree[int, C].new()
+
+    for i in 1..iterations:
+      var b = SumTree[int, C].new(numbers)
+      var c: SumTree[int, C]
+      if not singleOwner:
+        c = a.clone()
+
+      numbers.add i
+      a.add i
+      b.add i
+
+      let itemsA = collect:
+        for i, item in enumerate(a.items):
+          item
+
+      let itemsB = collect:
+        for i, item in enumerate(a.items):
+          item
+
+      check a.summary == TestSummary(count: i.Count, max: i.Max)
+      check a.extent(Count) == i.Count
+      check a.extent(Max) == i.Max
+      check a.toSeq == numbers
+      check itemsA == numbers
+
+      check b.summary == TestSummary(count: i.Count, max: i.Max)
+      check b.extent(Count) == i.Count
+      check b.extent(Max) == i.Max
+      check b.toSeq == numbers
+      check itemsB == numbers
+
+      if not singleOwner:
+        check c.toSeq & @[i] == numbers
+
 proc testN[C: static int](iterations: int) =
+  test &"add C={C}":
+    testAdd[C](iterations, true)
+    testAdd[C](iterations, false)
 
   test &"first/last C={C}":
     var a = SumTree[int, C].new()

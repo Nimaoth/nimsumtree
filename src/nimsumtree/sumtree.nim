@@ -3,9 +3,6 @@ import arc, static_array
 
 export arc, static_array, options, strutils
 
-const treeBase {.intdefine.} = 1
-const treeChildrenMax* = treeBase * 2
-
 const debugNodeLifecycle = false
 const debugAppend = false
 
@@ -201,7 +198,7 @@ proc `$`*(cursor: Cursor): string =
 func pretty*[T: Item; C: static int](node {.byref.}: Node[T, C], id: int = 0, count: int = 0): string =
   case node.kind:
   of Internal:
-    result = &"Internal(_{id}, #{count}, {node.mSummary}, {node.mChildren.high}):\n"
+    result = &"Internal(_{id}, #{count}, {node.mSummary}, {node.mChildren.high}, {node.mSummaries}):\n"
     for i in 0..node.mChildren.high:
       if i > 0:
         result.add "\n"
@@ -209,7 +206,7 @@ func pretty*[T: Item; C: static int](node {.byref.}: Node[T, C], id: int = 0, co
         node.mChildren[i].id, node.mChildren[i].count).indent(2)
 
   of Leaf:
-    result = &"Leaf(_{id}, #{count}, {node.mSummary}, {node.mItems})"
+    result = &"Leaf(_{id}, #{count}, {node.mSummary}, {node.mItems}, {node.mSummaries})"
 
 func pretty*[T: Item; C: static int](node{.byref.}: ArcNode[T, C]): string =
   let id = node.id
@@ -265,10 +262,12 @@ func height*[T: Item; C: static int](tree: SumTree[T, C]): int = tree.root.heigh
 
 func sum*[T: Summary; C: static int](arr {.byref.}: Array[T, C]): T =
   mixin addSummary
-  assert arr.len > 0
-  result = arr[0].clone()
-  for i in 1..arr.high:
-    result.addSummary(arr[i])
+  if arr.len == 0:
+    result = T.default
+  else:
+    result = arr[0].clone()
+    for i in 1..arr.high:
+      result.addSummary(arr[i])
 
 func summary*[T: Item; C: static int](node: Node[T, C]): T.summaryType = node.mSummary
 func summary*[T: Item; C: static int](node: ArcNode[T, C]): T.summaryType = node.get.summary
@@ -289,9 +288,9 @@ template childItems*[T: Item; C: static int](node: Node[T, C]): untyped =
 func isUnderflowing*[T; C: static int](node: Node[T, C]): bool =
   case node.kind
   of Internal:
-    node.mChildren.len < treeBase
+    node.mChildren.len < C div 2
   of Leaf:
-    node.mItems.len < treeBase
+    node.mItems.len < C div 2
 
 func toTree*[T: Item; C: static int](node: sink ArcNode[T, C]): SumTree[T, C] =
   SumTree[T, C](root: node)
@@ -333,10 +332,11 @@ proc makeUnique*[T: Item; C: static int](a: var ArcNode[T, C]) =
   # echo &"makeUnique _{a.id}, {a.count}"
   if a.count > 1:
     # Note: clone the node, not the arc
-    when debugNodeLifecycle:
-      echo indent(&"ArcNode.makeUnique {a}", recursion)
 
-    a = Arc.new(a.get.clone())
+    var b = Arc.new(a.get.clone())
+    when debugNodeLifecycle:
+      echo indent(&"ArcNode.makeUnique {a} -> {b}", recursion)
+    a = b.move
 
 proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: sink seq[T]): SumTree[T, C] =
   mixin summary
@@ -448,20 +448,23 @@ proc pushTreeRecursive[T: Item; C: static int](
 
   # debugf"pushTreeRecursive:\n- tree: {self.pretty.indent(1)}\n- other: {other.pretty.indent(1)}"
   debugf"pushTreeRecursive:- tree: {self}, other: {other}"
+  debugf"{self.pretty}"
 
   template node: Node[T, C] = self.get
+  self.makeUnique()
 
   case node.kind
   of Internal:
     debugf"--- internal"
     let otherNode {.cursor.} = other.get
+    node.mSummary.addSummary(otherNode.mSummary)
 
     let heightDelta = node.height - otherNode.height
     var summariesToAppend: SummaryArray[T.summaryType, C]
     var treesToAppend: ChildArray[T, C]
     var newNodeSummaries = node.mSummaries.clone
 
-    debugf"height: {node.mHeight}, {otherNode.height}, d: {heightDelta}"
+    debugf"height: {node.mHeight}, {otherNode.height}, d: {heightDelta}, {otherNode.isUnderflowing}"
     if heightDelta == 0:
       summariesToAppend = otherNode.mSummaries.clone()
       treesToAppend =  otherNode.mChildren.clone()
@@ -472,7 +475,7 @@ proc pushTreeRecursive[T: Item; C: static int](
     else:
       debugf"big height delta or undeflowing"
       var treeToAppend = node.mChildren[node.mChildren.high].pushTreeRecursive(other.clone())
-      newNodeSummaries[newNodeSummaries.high] = node.mChildren[node.mChildren.high].get.summary.clone()
+      node.mSummaries[node.mSummaries.high] = node.mChildren[node.mChildren.high].get.summary.clone()
 
       if treeToAppend.isSome:
         debugf"-> {treeToAppend.get.pretty}"
@@ -494,11 +497,11 @@ proc pushTreeRecursive[T: Item; C: static int](
       var rightTrees: ChildArray[T, C]
 
       let midpoint = (childCount + childCount mod 2) div 2
-      if midpoint == node.mSummaries.len:
-        return other.some
 
-      self.makeUnique()
-      node.mSummary.addSummary(otherNode.mSummary)
+      # todo: make this work to save clones?
+      # if midpoint == node.mSummaries.len and heightDelta == 0:
+      #   # No need to modify, the nodes already have the same height and can be directly appended
+      #   return other.some
 
       block:
         debugf"midpoint: {midpoint}"
@@ -533,9 +536,8 @@ proc pushTreeRecursive[T: Item; C: static int](
       debugf"left: {leftSummaries}, {leftTrees}"
       debugf"right: {rightSummaries}, {rightTrees}"
 
-      node.mSummary = leftSummaries.sum()
-      node.mSummaries = newNodeSummaries
       node.mSummaries = leftSummaries
+      node.mSummary = node.mSummaries.sum()
       node.mChildren = leftTrees.move
 
       return some(Arc.new(Node[T, C](
@@ -547,9 +549,6 @@ proc pushTreeRecursive[T: Item; C: static int](
       )))
 
     else:
-      self.makeUnique()
-      node.mSummary.addSummary(otherNode.mSummary)
-      node.mSummaries = newNodeSummaries
       node.mSummaries.add summariesToAppend
       node.mChildren.add treesToAppend
       debugf"extend internal {self.pretty}"
@@ -680,6 +679,15 @@ proc append*[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNod
 
 proc append*[T: Item; C: static int](self: var SumTree[T, C], other: sink SumTree[T, C]) =
   self.root.append(other.root)
+
+proc add*[T: Item; C: static int](self: var SumTree[T, C], item: sink T) =
+  let summary = item.summary
+  self.root.append Arc.new(Node[T, C](
+    kind: Leaf,
+    mSummary: summary.clone(),
+    mSummaries: [summary].toArray(C),
+    mItems: [item.move].toArray(C),
+  ))
 
 func initCursor*[T: Item; C: static int](
     self {.byref.}: SumTree[T, C], D: typedesc): Cursor[T, D, C] =

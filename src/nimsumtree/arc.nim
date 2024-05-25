@@ -10,25 +10,31 @@ const debugCustomArcLeaks {.booldefine.} = true
 when debugCustomArc:
   import strformat
 
-var idCounter = 0
+when debugCustomArc or debugCustomArcId:
+  var idCounter = 0
 
-var activeArcs = 0
+when debugCustomArcLeaks:
+  var activeArcs = 0
 
 proc assertNoLeaks*() =
   assert activeArcs == 0
 
 type
-  ArcData[T] = object
+  ArcData[T] {.acyclic.} = object
     when debugCustomArcId or debugCustomArc:
       id: int
     count: Atomic[uint64]
     value: T
 
-  Arc*[T] = object
+  Arc*[T] {.acyclic.} = object
     data: ptr ArcData[T]
 
 proc `=copy`*[T](a: var Arc[T], b: Arc[T]) {.error.}
 proc `=dup`*[T](a: Arc[T]): Arc[T] {.error.}
+
+proc `=trace`*[T](a: var Arc[T], env: pointer) =
+  if a.data != nil:
+    `=trace`(a.data[].value, env)
 
 proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
   if a.data == nil:

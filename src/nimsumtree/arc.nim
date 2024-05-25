@@ -68,9 +68,9 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
 
 proc `$`*[T](arc {.byref.}: Arc[T]): string =
   when debugCustomArcId or debugCustomArc:
-    "Arc(_" & $arc.data[].id & ", #" &  $arc.data[].count & ", " & $arc.data[].value & ")"
+    "Arc(_" & $arc.data[].id & ", #" &  $arc.data[].count.load & ", " & $arc.data[].value & ")"
   else:
-    "Arc(#" & $arc.data[].count & ", " & $arc.data[].value & ")"
+    "Arc(#" & $arc.data[].count.load & ", " & $arc.data[].value & ")"
 
 proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
   result.data = cast[ptr ArcData[T]](allocShared0(sizeof(ArcData[T])))
@@ -110,7 +110,7 @@ proc clone*[T](a {.byref.}: Arc[T]): Arc[T] =
   result.data = a.data
 
   when debugCustomArc:
-    echo "Arc.clone _", a.data[].id, " -> ", a.data[].count
+    echo "Arc.clone _", a.data[].id, " -> ", a.data[].count.load
 
 func id*[T](a: Arc[T]): int =
   when debugCustomArcId or debugCustomArc:

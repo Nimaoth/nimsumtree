@@ -7,8 +7,7 @@ import rope
 # _äb🚻\äb🚻
 # äb🚻
 
-test "offsetToCount":
-  let chunk = "_äb🚻\näb🚻".toChunk
+proc testOffsetTo[T](input: T) =
   let offsetTo = [
     (0, 0, (0, 0)),
     (1, 1, (0, 1)),
@@ -30,11 +29,9 @@ test "offsetToCount":
     (16, 8, (1, 7))
   ]
   for (offset, count, point) in offsetTo:
-    echo offset, ", ", count, ", ", point
-    check chunk.offsetToCount(offset) == count.Count
-    check chunk.offsetToPoint(offset) == Point(row: point[0].uint32, column: point[1].uint32)
+    check input.offsetToCount(offset) == count.Count
+    check input.offsetToPoint(offset) == Point(row: point[0].uint32, column: point[1].uint32)
 
-  echo "------------"
   let countTo = [
     (0, 0, (0, 0)),
     (1, 1, (0, 1)),
@@ -47,11 +44,9 @@ test "offsetToCount":
     (8, 16, (1, 7))
   ]
   for (count, offset, point) in countTo:
-    echo count, ", ", offset, ", ", point
-    check chunk.countToOffset(count.Count) == offset
-    check chunk.countToPoint(count.Count) == Point(row: point[0].uint32, column: point[1].uint32)
+    check input.countToOffset(count.Count) == offset
+    check input.countToPoint(count.Count) == Point(row: point[0].uint32, column: point[1].uint32)
 
-  echo "------------"
   let pointTo = [
     ((0, 0), 0, 0),
     ((0, 1), 1, 1),
@@ -65,6 +60,17 @@ test "offsetToCount":
   ]
   for (point, offset, count) in pointTo:
     let point = Point(row: point[0].uint8, column: point[1].uint8)
-    echo offset, ", ", count, ", ", point
-    check chunk.pointToOffset(point) == offset
-    check chunk.pointToCount(point) == count.Count
+    check input.pointToOffset(point) == offset
+    check input.pointToCount(point) == count.Count
+
+const testText1 = "_äb🚻\näb🚻"
+when chunkBase >= testText1.len:
+  test "Chunk offsetToCount":
+    let chunk = testText1.toChunk
+    testOffsetTo(chunk)
+else:
+  echo &"note: test 'Chunk offsetToCount' not executed because chunkBase ({chunkBase}) < testText1.len ({testText1.len})"
+
+test "Rope offsetToCount":
+  let rope = testText1.toRope
+  testOffsetTo(rope)

@@ -2,13 +2,18 @@ import std/[unittest, enumerate, strformat, sugar, os]
 import nimsumtree/[sumtree]
 import uni
 
-# const chunkBase = 4
+# const chunkBase* = 16
 # const treeBase = 2
-const chunkBase = 256
-const treeBase = 12
+const chunkBase* = 256
+const treeBase* = 12
+
+when chunkBase < 4:
+  {.error: "chunkBase must be >= 4 because utf-8 characters can be encoded with " &
+    "up to four bytes".}
 
 type
   Count* = distinct int
+  Count32* = distinct uint32
 
   Point* = object
     row*: uint32    ## Number of newlines
@@ -18,10 +23,10 @@ type
     bytes*: int
     len*: Count
     lines*: Point
-    firstLineChars*: Count
-    lastLineChars*: Count
+    firstLineChars*: Count32
+    lastLineChars*: Count32
     longestRow*: uint32
-    longestRowChars*: Count
+    longestRowChars*: Count32
 
   Chunk* = object
     data: Array[char, chunkBase]
@@ -29,9 +34,20 @@ type
 proc `=copy`*(a: var Chunk, b: Chunk) {.error.}
 proc `=dup`*(a: Chunk): Chunk {.error.}
 
+func `$`*(a: Count): string {.borrow.}
+func `+=`*(a: var Count, b: Count) {.borrow.}
 proc `+`*(a: Count, b: Count): Count {.borrow.}
+proc `-`*(a: Count, b: Count): Count {.borrow.}
+proc `==`*(a: Count, b: Count): bool {.borrow.}
 proc `<`*(a: Count, b: Count): bool {.borrow.}
 proc `<=`*(a: Count, b: Count): bool {.borrow.}
+
+func `$`*(a: Count32): string {.borrow.}
+func `+=`*(a: var Count32, b: Count32) {.borrow.}
+proc `+`*(a: Count32, b: Count32): Count32 {.borrow.}
+proc `==`*(a: Count32, b: Count32): bool {.borrow.}
+proc `<`*(a: Count32, b: Count32): bool {.borrow.}
+proc `<=`*(a: Count32, b: Count32): bool {.borrow.}
 
 proc `$`*(r: Chunk): string =
   result = "["
@@ -40,27 +56,13 @@ proc `$`*(r: Chunk): string =
 
 func clone*(a: TextSummary): TextSummary = a
 
-func `$`*(a: Count): string {.borrow.}
-func `+=`*(a: var Count, b: Count) {.borrow.}
-func `==`*(a: Count, b: Count): bool {.borrow.}
 func addSummary*(a: var Count, b: Count) = a = (a.int + b.int).Count
 func clone*(a: Count): Count = a
 func cmp*(a: Count, b: Count): int = cmp(a.int, b.int)
 
 func addSummary*(a: var Count, b: TextSummary) = a += b.len
 func fromSummary*(_: typedesc[Count], a: TextSummary): Count = a.len
-
-# func `==`*(a: Point, b: Point): bool = discard
-func `+=`*(a: var Point, b: Point) =
-  a.row += b.row
-  if b.row == 0:
-    a.column += b.column
-  else:
-    a.column = b.column
-
-func `+`*(a: Point, b: Point): Point =
-  result = a
-  result += b
+func fromSummary*(_: typedesc[int], a: TextSummary): int = a.bytes
 
 func `<`*(a: Point, b: Point): bool =
   if a.row == b.row:
@@ -72,6 +74,24 @@ func `<=`*(a: Point, b: Point): bool =
     return a.column <= b.column
   return a.row <= b.row
 
+func `+=`*(a: var Point, b: Point) =
+  a.row += b.row
+  if b.row == 0:
+    a.column += b.column
+  else:
+    a.column = b.column
+
+func `+`*(a: Point, b: Point): Point =
+  result = a
+  result += b
+
+func `-`*(a: Point, b: Point): Point =
+  assert b <= a
+  if a.row == b.row:
+    Point(row: 0, column: a.column - b.column)
+  else:
+    Point(row: a.row - b.row, column: a.column)
+
 func addSummary*(a: var Point, b: Point) = a += b
 func clone*(a: Point): Point = a
 func cmp*(a: Point, b: Point): int =
@@ -82,20 +102,8 @@ func cmp*(a: Point, b: Point): int =
 func addSummary*(a: var Point, b: TextSummary) = a += b.lines
 func fromSummary*(_: typedesc[Point], a: TextSummary): Point = a.lines
 
-# func `+=`*(a: var (Count, Point), b: (Count, Point)) =
-#   a[0] += b[0]
-#   a[1] += b[1]
-# func addSummary*(a: var (Count, Point), b: (Count, Point)) =
-#   a[0] += b[0]
-#   a[1] += b[1]
-# func clone*(a: (Count, Point)): (Count, Point) = (a[0].clone(), a[1].clone())
-# func cmp*(a: Count, b: (Count, Point)): int = cmp(a.int, b[0].int)
 func cmp*(a: Count, b: TextSummary): int = cmp(a, b.len)
 func cmp*(a: Point, b: TextSummary): int = cmp(a, b.lines)
-
-# func `+=`*[A, B](a: var (A, B), b: (A, B)) =
-#   a[0] += b[0]
-#   a[1] += b[1]
 
 func addSummary*[A, B](a: var (A, B), b: (A, B)) =
   a[0] += b[0]
@@ -104,19 +112,9 @@ func addSummary*[A, B](a: var (A, B), b: (A, B)) =
 func clone*[A, B](a: (A, B)): (A, B) = (a[0].clone(), a[1].clone())
 func cmp*[A, B](a: A, b: (A, B)): int = cmp(a, b[0])
 
-func addSummary*(a: var (int, Point), b: TextSummary) =
-  a[0] += b.bytes
-  a[1] += b.lines
-
-func addSummary*(a: var (Count, Point), b: TextSummary) =
-  a[0] += b.len
-  a[1] += b.lines
-
-# func addSummary*(a: var (Count, Point), b: TextSummary) =
-#   a[0] += b.len
-#   a[1] += b.lines
-
-# func fromSummary*(_: typedesc[(Count, Point)], a: TextSummary): (Count, Point) = (a.count, a.max)
+func addSummary*[A, B](a: var (A, B), b: TextSummary) =
+  a[0] += A.fromSummary(b)
+  a[1] += B.fromSummary(b)
 
 func `+=`*(self: var TextSummary, other: TextSummary) =
   let joinedChars = self.lastLineChars + other.firstLineChars
@@ -158,10 +156,10 @@ proc summary*(x: Chunk): TextSummary =
 
     if r == '\n'.Rune:
       result.lines += Point(row: 1, column: 0)
-      result.lastLineChars = 0.Count
+      result.lastLineChars = 0.Count32
     else:
       result.lines.column += r.size.uint32
-      result.lastLineChars += 1.Count
+      result.lastLineChars += 1.Count32
 
     if result.lines.row == 0:
       result.firstLineChars = result.lastLineChars
@@ -273,6 +271,8 @@ proc clipPoint*(self: Chunk, target: Point, bias: Bias): Point =
 
   assert false
 
+################### Rope ###################
+
 type
   Rope* = object
     tree*: SumTree[Chunk, treeBase]
@@ -289,30 +289,70 @@ func chars*(self: Rope): int =
 func lines*(self: Rope): Point =
   return self.tree.summary.lines
 
-proc offsetToPoint*(self: Rope, offset: int): Point =
-  if offset >= self.tree.summary.len.int:
+proc offsetToCount*(self: Rope, target: int): Count =
+  if target >= self.tree.summary.bytes:
+    return self.tree.summary.len
+  var cursor = self.tree.initCursor (int, Count)
+  discard cursor.seekForward(target, Left)
+  let overshoot = target - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].offsetToCount(overshoot)).get(0.Count)
+
+proc offsetToPoint*(self: Rope, target: int): Point =
+  if target >= self.tree.summary.bytes:
     return self.tree.summary.lines
   var cursor = self.tree.initCursor (int, Point)
-  discard cursor.seekForward(offset, Left)
-  let overshoot = offset - cursor.startPos[0]
+  discard cursor.seekForward(target, Left)
+  let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].offsetToPoint(overshoot)).get(Point.default)
+
+proc countToOffset*(self: Rope, target: Count): int =
+  if target >= self.tree.summary.len:
+    return self.tree.summary.bytes
+  var cursor = self.tree.initCursor (Count, int)
+  discard cursor.seekForward(target, Left)
+  let overshoot = target - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].countToOffset(overshoot)).get(0)
+
+proc countToPoint*(self: Rope, target: Count): Point =
+  if target >= self.tree.summary.len:
+    return self.tree.summary.lines
+  var cursor = self.tree.initCursor (Count, Point)
+  discard cursor.seekForward(target, Left)
+  let overshoot = target - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].countToPoint(overshoot)).get(Point.default)
+
+proc pointToOffset*(self: Rope, target: Point): int =
+  if target >= self.tree.summary.lines:
+    return self.tree.summary.bytes
+  var cursor = self.tree.initCursor (Point, int)
+  discard cursor.seekForward(target, Left)
+  let overshoot = target - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].pointToOffset(overshoot)).get(0)
+
+proc pointToCount*(self: Rope, target: Point): Count =
+  if target >= self.tree.summary.lines:
+    return self.tree.summary.len
+  var cursor = self.tree.initCursor (Point, Count)
+  discard cursor.seekForward(target, Left)
+  let overshoot = target - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].pointToCount(overshoot)).get(0.Count)
 
 proc new*(_: typedesc[Rope], value: string = ""): Rope =
   var chunks = newSeq[Chunk]()
 
   var i = 0
   while i < value.len:
-    let last = min(i + chunkBase, value.len)
+    let last = value.runeStart(min(i + chunkBase, value.len))
     chunks.add Chunk(data: value.toOpenArray(i, last - 1).toArray(chunkBase))
     i = last
 
   result.tree = SumTree[Chunk, treeBase].new(chunks)
 
+proc toRope*(value: string): Rope = Rope.new(value)
+
 proc `$`*(r: Rope): string =
-  result = "Rope("
   for chunk in r.tree:
     result.add chunk.data.toOpenArray.join("")
-  result.add ")"
 
 proc add*(self: var Chunk, text: openArray[char]) =
   self.data.add text

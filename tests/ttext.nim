@@ -28,8 +28,15 @@ proc testStringSummary(text: string) =
   check a.chars == text.runeLen
   check a.lines == point
 
+  var c = a.cursor()
+  let s = c.summary(TextSummary, text.len)
+  check s.bytes == text.len
+  check s.len == text.runeLen.Count
+  check s.lines == point
+
   # echo &"{text.len} bytes, {text.runeLen} runes"
   # echo a.tree.stats
+  # echo a.tree.pretty
 
 test "Various string summaries":
   testStringSummary("abcdefghijklmnopqrstuvwxyz")
@@ -40,3 +47,17 @@ echo a""")
 
   const a = staticRead("text_example.txt")
   testStringSummary(a)
+
+test "Slicing":
+  var rope = toRope """import os
+let a = 5
+echo a"""
+
+  check $rope[0..<0] == ""
+  check $rope[0..<1] == "i"
+  check $rope[0..<6] == "import"
+  check $rope[7..<9] == "os"
+  check $rope[8..<11] == "s\nl"
+  check $rope[10..<13] == "let"
+  check $rope[14..<20] == "a = 5\n"
+  check $rope[20..<26] == "echo a"

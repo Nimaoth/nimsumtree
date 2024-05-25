@@ -54,14 +54,22 @@ proc `$`*(r: Chunk): string =
   result.add r.data.toOpenArray.join("")
   result.add "]"
 
+proc init*(_: typedesc[Point], row: int, column: int): Point =
+  Point(row: row.uint32, column: column.uint32)
+
 func clone*(a: TextSummary): TextSummary = a
 
 func addSummary*(a: var Count, b: Count) = a = (a.int + b.int).Count
 func clone*(a: Count): Count = a
 func cmp*(a: Count, b: Count): int = cmp(a.int, b.int)
-
 func addSummary*(a: var Count, b: TextSummary) = a += b.len
 func fromSummary*(_: typedesc[Count], a: TextSummary): Count = a.len
+
+func addSummary*(a: var int, b: int) = a = a + b
+func `+=`*(a: var int, b: int) = a = a + b
+func clone*(a: int): int = a
+func addSummary*(a: var int, b: TextSummary) = a += b.bytes
+func `+=`*(a: var int, b: TextSummary) = a += b.bytes
 func fromSummary*(_: typedesc[int], a: TextSummary): int = a.bytes
 
 func `<`*(a: Point, b: Point): bool =
@@ -148,10 +156,10 @@ proc clone*(a: Chunk): Chunk = Chunk(data: a.data)
 proc toChunk*(text: string): Chunk = Chunk(data: text.toOpenArray(0, text.high).toArray(chunkBase))
 proc toChunk*(text: openArray[char]): Chunk = Chunk(data: text.toArray(chunkBase))
 
-proc summary*(x: Chunk): TextSummary =
-  result.bytes = x.data.len
+proc init*(_: typedesc[TextSummary], x: openArray[char]): TextSummary =
+  result.bytes = x.len
 
-  for r in x.data.toOpenArray.runes:
+  for r in x.runes:
     result.len += 1.Count
 
     if r == '\n'.Rune:
@@ -167,6 +175,12 @@ proc summary*(x: Chunk): TextSummary =
     if result.lastLineChars > result.longestRowChars:
       result.longestRow = result.lines.row
       result.longestRowChars = result.lastLineChars
+
+proc init*(_: typedesc[TextSummary], x: string): TextSummary =
+  TextSummary.init(x.toOpenArray(0, x.high))
+
+proc summary*(x: Chunk): TextSummary =
+  TextSummary.init(x.data.toOpenArray)
 
 proc offsetToCount*(self: Chunk, target: int): Count =
   var offset = 0
@@ -277,8 +291,15 @@ type
   Rope* = object
     tree*: SumTree[Chunk, treeBase]
 
+  RopeCursor* = object
+    rope: ptr Rope
+    chunks: Cursor[Chunk, int, treeBase]
+    offset: int
+
 proc `=copy`*(a: var Rope, b: Rope) {.error.}
 proc `=dup`*(a: Rope): Rope {.error.}
+
+proc checkInvariants*(self: Rope) = discard
 
 func bytes*(self: Rope): int =
   return self.tree.summary.bytes
@@ -357,7 +378,10 @@ proc `$`*(r: Rope): string =
 proc add*(self: var Chunk, text: openArray[char]) =
   self.data.add text
 
-proc add*(self: var Rope, text: string) =
+proc add*(self: var Rope, text: openArray[char]) =
+  if text.len == 0:
+    return
+
   var textLen = text.len
   var textPtr: ptr UncheckedArray[char] = cast[ptr UncheckedArray[char]](text[0].addr)
   template text: untyped = textPtr.toOpenArray(0, textLen - 1)
@@ -392,3 +416,87 @@ proc add*(self: var Rope, text: string) =
     i = last
 
   self.tree.extend(chunks)
+
+proc add*(self: var Rope, text: string) =
+  self.add text.toOpenArray(0, text.high)
+
+proc add*(self: var Rope, rope: sink Rope) =
+  var chunks = rope.tree.initCursor
+  chunks.next()
+  let chunk = chunks.item
+  if chunk.isSome:
+    let lastChunk = self.tree.last
+    let lastChunkSmallEnough = lastChunk.mapIt(it[].data.len < chunkBase).get(false)
+    if lastChunkSmallEnough or chunk.get[].data.len < chunkBase:
+      self.add(chunk.get[].data.toOpenArray)
+      chunks.next()
+
+  self.tree.append(chunks.suffix())
+  self.checkInvariants()
+
+proc cursor*(self {.byref.}: Rope, offset: int = 0): RopeCursor =
+  result.rope = self.addr
+  result.chunks = self.tree.initCursor int
+  result.offset = offset
+  discard result.chunks.seek(offset, Right)
+
+proc seekForward*(self: var RopeCursor, target: int) =
+  assert target >= self.offset
+  discard self.chunks.seekForward(target, Right)
+  self.offset = target
+
+proc slice*(self: var RopeCursor, target: int): Rope =
+  assert target >= self.offset
+
+  result = Rope.new()
+  let startChunk = self.chunks.item
+  if startChunk.isSome:
+    let startIndex = self.offset - self.chunks.startPos
+    let endIndex = min(target, self.chunks.endPos) - self.chunks.startPos
+    result.add(startChunk.get[].data.toOpenArray(startIndex, endIndex - 1))
+
+  if target > self.chunks.endPos:
+    self.chunks.next()
+    result.add Rope(tree: self.chunks.slice(target, Right))
+    let endChunk = self.chunks.item
+    if endChunk.isSome:
+      let endIndex = target - self.chunks.startPos
+      result.add(endChunk.get[].data.toOpenArray(0, endIndex - 1))
+
+  self.offset = target
+
+proc summary*(self: var RopeCursor, D: typedesc[Dimension], target: int): D =
+  assert target >= self.offset
+
+  result = D.default
+  let startChunk = self.chunks.item
+  if startChunk.isSome:
+    let startIndex = self.offset - self.chunks.startPos
+    let endIndex = min(target, self.chunks.endPos) - self.chunks.startPos
+    result += D.fromSummary(TextSummary.init(startChunk.get[].data.toOpenArray(0, endIndex - 1)))
+
+  if target > self.chunks.endPos:
+    self.chunks.next()
+    result += self.chunks.summary(D, target, Right)
+    let endChunk = self.chunks.item
+    if endChunk.isSome:
+      let endIndex = target - self.chunks.startPos
+      result += D.fromSummary(TextSummary.init(endChunk.get[].data.toOpenArray(0, endIndex - 1)))
+
+  self.offset = target
+
+proc suffix*(self: var RopeCursor): Rope =
+  self.slice(self.rope.tree.extent(int))
+
+proc offset*(self: RopeCursor): int =
+  self.offset
+
+proc `[]`*(self: Rope, slice: Slice[int]): Rope =
+  var cursor = self.cursor()
+  cursor.seekForward slice.a
+  cursor.slice(slice.b + 1)
+
+proc sliceRows*(self: Rope, slice: Slice[int]): Rope =
+  let startOffset = self.pointToOffset(Point.init(slice.a, 0))
+  let endOffset = self.pointToOffset(Point.init(slice.b + 1, 0))
+  self[startOffset..<endOffset]

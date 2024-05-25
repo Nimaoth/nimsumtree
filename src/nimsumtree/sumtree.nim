@@ -17,7 +17,7 @@ type
     a.summary is Summary
 
   Dimension* = concept var a, b, type T
-    a.addSummary(Summary)
+    # a.addSummary(c) # Causes issues with ambigous symbols
     b.clone() is T
     T.fromSummary(Summary) is T
 

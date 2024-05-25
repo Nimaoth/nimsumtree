@@ -1,4 +1,4 @@
-import std/[macros, strformat, options]
+import std/[macros, options]
 import clone
 
 type

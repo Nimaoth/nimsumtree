@@ -1,4 +1,4 @@
-import std/[sequtils, strutils]
+import std/[sequtils, strutils, atomics]
 import clone
 
 export clone
@@ -18,120 +18,133 @@ proc assertNoLeaks*() =
   assert activeArcs == 0
 
 type
-  Arc*[T] = object
+  ArcData[T] = object
     when debugCustomArcId or debugCustomArc:
-      id: ref int
-    # todo: properly implement this stuff
-    count: ref int
-    value: ref T
+      id: int
+    count: Atomic[uint64]
+    value: T
+
+  Arc*[T] = object
+    data: ptr ArcData[T]
 
 proc `=copy`*[T](a: var Arc[T], b: Arc[T]) {.error.}
 proc `=dup`*[T](a: Arc[T]): Arc[T] {.error.}
 
 proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
-  if a.count.isNil or a.value.isNil:
+  if a.data == nil:
     return
 
-  assert a.count[] > 0
+  when debugCustomArc:
+    echo "Arc.destroy _", a.data[].id, ", count: ", a.data[].count.load
 
-  dec a.count[]
+  if a.data[].count.fetchSub(1, moRelease) != 1:
+    return
 
-  # when debugCustomArc:
-  #   echo "Arc.destroy arc _", a.id[], ", count: ", a.count[]
+  # todo: support thread sanitizer: use a.data[].count.load
+  # see: sync.rs impl Drop for Arc
+  fence(moAcquire)
 
-  if a.count[] == 0:
-    when debugCustomArcLeaks:
-      dec activeArcs
+  when debugCustomArcLeaks:
+    dec activeArcs
 
-    when debugCustomArc:
-      echo "Arc.destroy _", a.id[], ", count: ", a.count[]
+  when debugCustomArc:
+    echo "Arc.destroy _", a.data[].id, ", count: ", a.data[].count.load
 
-    {.warning[BareExcept]: off.}
-    try:
-      `=destroy`(a.value[])
-      `=wasMoved`(a.value[])
-    except:
-      discard
-    {.warning[BareExcept]: on.}
+  {.warning[BareExcept]: off.}
+  try:
+    `=destroy`(a.data[].value)
+    `=wasMoved`(a.data[].value)
+  except:
+    discard
+  {.warning[BareExcept]: on.}
+
+  deallocShared(a.data)
 
 proc `$`*[T](arc {.byref.}: Arc[T]): string =
   when debugCustomArcId or debugCustomArc:
-    "Arc(_" & $arc.id[] & ", #" &  $arc.count[] & ", " & $arc.value[] & ")"
+    "Arc(_" & $arc.data[].id & ", #" &  $arc.data[].count & ", " & $arc.data[].value & ")"
   else:
-    "Arc(#" & $arc.count[] & ", " & $arc.value[] & ")"
+    "Arc(#" & $arc.data[].count & ", " & $arc.data[].value & ")"
 
 proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
-  when debugCustomArcLeaks:
-    inc activeArcs
+  result.data = cast[ptr ArcData[T]](allocShared0(sizeof(ArcData[T])))
+  result.data[].count.store(1.uint64)
+  result.data[].value = default.move
+
   when debugCustomArcId or debugCustomArc:
     inc idCounter
     when debugCustomArc:
       echo "Arc.new _", idCounter
-    result.id = new int
-    result.id[] = idCounter
-
-  result.count = new int
-  result.count[] = 1
-  result.value = new T
-  result.value[] = default.move
+    result.data[].id = idCounter
+  when debugCustomArcLeaks:
+    inc activeArcs
 
 proc new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
-  when debugCustomArcLeaks:
-    inc activeArcs
+  result.data = cast[ptr ArcData[T]](allocShared0(sizeof(ArcData[T])))
+  result.data[].count.store(1.uint64)
+  result.data[].value = default.move
+
   when debugCustomArcId or debugCustomArc:
     inc idCounter
     when debugCustomArc:
       echo "Arc.new _", idCounter
-    result.id = new int
-    result.id[] = idCounter
-
-  result.count = new int
-  result.count[] = 1
-  result.value = new T
-  result.value[] = default.move
+    result.data[].id = idCounter
+  when debugCustomArcLeaks:
+    inc activeArcs
 
 proc new*[T](A: typedesc[Arc[T]]): Arc[T] = A.new(T.default)
 proc new*(A: typedesc[Arc], T: typedesc): Arc[T] = A.new(T.default)
 
 proc clone*[T](a {.byref.}: Arc[T]): Arc[T] =
-  assert a.count != nil and a.value != nil
-  when debugCustomArcId or debugCustomArc:
-    result.id = a.id
+  assert a.data != nil
 
-  result.count = a.count
-  result.count[] += 1
-  result.value = a.value
+  let oldSize = a.data[].count.fetchAdd(1, moRelaxed)
+  assert oldSize < int64.high.uint64
+
+  result.data = a.data
+
   when debugCustomArc:
-    echo "Arc.clone _", a.id[], " -> ", a.count[]
-
-proc getUnique*[T: Clone](a: var Arc[T]): lent T =
-  if a.count[] > 1:
-    a = Arc[T].new(a.value[].clone())
-  return a.value[]
+    echo "Arc.clone _", a.data[].id, " -> ", a.data[].count
 
 func id*[T](a: Arc[T]): int =
   when debugCustomArcId or debugCustomArc:
-    if a.id.isNil:
+    if a.data == nil:
       -1
     else:
-      a.id[]
+      a.data[].id
   else:
     -1
 
 func count*[T](a: Arc[T]): int =
-  if a.count.isNil:
+  if a.data == nil:
     -1
   else:
-    a.count[]
+    a.data[].count.load(moRelaxed).int
 
-func set*[T](a: var Arc[T], value: sink T) =
-  assert not a.value.isNil
-  a.value[] = value
-
-func get*[T](a: var Arc[T]): var T =
-  assert not a.value.isNil
-  a.value[]
+func getMut*[T](a: var Arc[T]): var T =
+  assert a.data != nil
+  assert a.count == 1
+  a.data[].value
 
 func get*[T](a: Arc[T]): lent T =
-  assert not a.value.isNil
-  a.value[]
+  assert a.data != nil
+  # assert a.count == 1
+  a.data[].value
+
+
+proc makeUnique*[T](a: var Arc[T]) =
+  assert a.data != nil
+
+  var expected = 1.uint64
+  if not a.data[].count.compareExchange(expected, 0.uint64, moAcquire, moRelaxed):
+    # Note: clone the node, not the arc
+
+    var b = Arc.new(a.data[].value.clone())
+    when debugCustomArc:
+      echo &"Arc.makeUnique {a} -> {b}"
+
+    a = b.move
+
+  else:
+    # Only reference, set count back to one
+    a.data[].count.store(1, moRelease)

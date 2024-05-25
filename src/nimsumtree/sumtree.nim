@@ -330,16 +330,6 @@ proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]]): SumTree[T, C] =
 proc clone*[T; C: static int](a {.byref.}: SumTree[T, C]): SumTree[T, C] =
   a.root.clone().toTree
 
-proc makeUnique*[T: Item; C: static int](a: var ArcNode[T, C]) =
-  # echo &"makeUnique _{a.id}, {a.count}"
-  if a.count > 1:
-    # Note: clone the node, not the arc
-
-    var b = Arc.new(a.get.clone())
-    when debugNodeLifecycle:
-      echo indent(&"ArcNode.makeUnique {a} -> {b}", recursion)
-    a = b.move
-
 proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: sink seq[T]): SumTree[T, C] =
   mixin summary
   mixin `+=`
@@ -441,18 +431,18 @@ proc updateLastRecursive[T: Item; C: static int](
 
   case self.get.kind
   of Internal:
-    var lastSummary = self.get.mSummaries[self.get.mSummaries.high].addr
+    var lastSummary = self.getMut.mSummaries[self.get.mSummaries.high].addr
     var lastChild = self.get.mChildren[self.get.mChildren.high].addr
     lastSummary[] = lastChild[].updateLastRecursive(f).get
-    self.get.mSummary = self.get.mSummaries.sum
+    self.getMut.mSummary = self.get.mSummaries.sum
     self.get.mSummary.clone().some
 
   of Leaf:
     if self.get.mItemArray.len > 0:
       let item = self.get.mItemArray[self.get.mItemArray.high].addr
       f(item[])
-      self.get.mSummaries[self.get.mSummaries.high] = item[].summary()
-      self.get.mSummary = self.get.mSummaries.sum
+      self.getMut.mSummaries[self.get.mSummaries.high] = item[].summary()
+      self.getMut.mSummary = self.get.mSummaries.sum
       self.get.mSummary.clone().some
 
     else:
@@ -483,7 +473,7 @@ proc pushTreeRecursive[T: Item; C: static int](
   debugf"pushTreeRecursive:- tree: {self}, other: {other}"
   debugf"{self.pretty}"
 
-  template node: Node[T, C] = self.get
+  template node: Node[T, C] = self.getMut
   self.makeUnique()
 
   case node.kind
@@ -495,7 +485,6 @@ proc pushTreeRecursive[T: Item; C: static int](
     let heightDelta = node.height - otherNode.height
     var summariesToAppend: SummaryArray[T.summaryType, C]
     var treesToAppend: ChildArray[T, C]
-    var newNodeSummaries = node.mSummaries.clone
 
     debugf"height: {node.mHeight}, {otherNode.height}, d: {heightDelta}, {otherNode.isUnderflowing}"
     if heightDelta == 0:
@@ -1093,48 +1082,48 @@ proc endPos*[T: Item; D; C: static int](self: Cursor[T, D, C]): D =
   else:
     result = self.position.clone()
 
-func nextLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ArcNode[T, C]] =
+proc nextLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr ArcNode[T, C]] =
   if self.stack.len > 0:
     assert self.stack[self.stack.high].node.isLeaf
   for i in countdown(self.stack.high - 1, 0):
     let entry {.cursor.} = self.stack[i]
     if entry.index < entry.node.get.mChildren.len - 1:
-      return entry.node.get.mChildren[entry.index + 1].leftmostLeaf.clone().some
+      return entry.node.get.mChildren[entry.index + 1].leftmostLeaf.addr.some
 
-func prevLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ArcNode[T, C]] =
+proc prevLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr ArcNode[T, C]] =
   if self.stack.len > 0:
     assert self.stack[self.stack.high].node.isLeaf
   for i in countdown(self.stack.high - 1, 0):
     let entry {.cursor.} = self.stack[i]
     if entry.index > 0:
-      return entry.node.get.mChildren[entry.index - 1].rightmostLeaf.clone().some
+      return entry.node.get.mChildren[entry.index - 1].rightmostLeaf.addr.some
 
-func nextItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+proc nextItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
   if not self.didSeek:
     result = self.node.first
   elif self.stack.len > 0:
     let entry {.cursor.} = self.stack[self.stack.high]
     if entry.index == entry.node.get.mItemArray.high:
-      result = self.nextLeaf.mapIt(it.get.mItemArray.first).flatten
+      result = self.nextLeaf.mapIt(it[].get.mItemArray.first).flatten
     else:
       result = entry.node.get.mItemArray[entry.index + 1].addr.some
 
   elif not self.atEnd:
     result = self.node.first
 
-func prevItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+proc prevItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
   self.assertDidSeek
   if self.stack.len > 0:
     let entry {.cursor.} = self.stack[self.stack.high]
     if entry.index == 0:
-      result = self.prevLeaf.mapIt(it.get.mItemArray.last).flatten
+      result = self.prevLeaf.mapIt(it[].get.mItemArray.last).flatten
     else:
       result = entry.node.get.mItemArray[entry.index - 1].addr.some
 
   elif self.atEnd:
     result = self.node.last
 
-func item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+proc item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
   # Returns the current item, or none if path the end
 
   self.assertDidSeek
@@ -1152,7 +1141,7 @@ func item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
 
   return (ptr T).none
 
-func itemClone*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T] =
+proc itemClone*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T] =
   # Returns the current item, or none if path the end
 
   self.assertDidSeek
@@ -1196,11 +1185,11 @@ iterator items*[T: Item; C: static int](self: SumTree[T, C]): lent T =
     yield p[]
     cursor.next()
 
-func didSeek*(self: Cursor): bool =
+proc didSeek*(self: Cursor): bool =
   ## Returns true if the cursor moved to an item
   self.didSeek
 
-func atEnd*(self: Cursor): bool =
+proc atEnd*(self: Cursor): bool =
   ## Returns true if the cursor at the end (no more items left)
   self.atEnd
 

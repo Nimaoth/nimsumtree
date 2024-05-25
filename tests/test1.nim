@@ -4,7 +4,15 @@ import test/test_summary
 
 const debugIteration {.used.} = 17
 
-test "seek end":
+template customTest(name: string, body): untyped =
+  test name:
+    defer:
+      GC_FullCollect()
+      assertNoLeaks()
+    block:
+      body
+
+customTest "seek end":
   var a = SumTree[int, 2].new(@[1, 2])
   var c1 = a.initCursor
   check not c1.seekForward(End[tuple[]](), Right)
@@ -17,7 +25,7 @@ test "seek end":
   check c1.didSeek
   check c1.atEnd
 
-test "prev/next leaf":
+customTest "prev/next leaf":
   var a = SumTree[int, 2].new()
   var c1 = a.initCursor
   check c1.prevLeaf.isNone
@@ -42,21 +50,21 @@ test "prev/next leaf":
 
   c1.next()
   check c1.prevLeaf.isNone
-  check c1.nextLeaf.mapIt(@(it.get.childItems)) == some @[3]
+  check c1.nextLeaf.mapIt(@(it[].get.childItems)) == some @[3]
 
   c1.next()
   check c1.prevLeaf.isNone
-  check c1.nextLeaf.mapIt(@(it.get.childItems)) == some @[3]
+  check c1.nextLeaf.mapIt(@(it[].get.childItems)) == some @[3]
 
   c1.next()
-  check c1.prevLeaf.mapIt(@(it.get.childItems)) == some @[1, 2]
+  check c1.prevLeaf.mapIt(@(it[].get.childItems)) == some @[1, 2]
   check c1.nextLeaf.isNone
 
   c1.next()
   check c1.prevLeaf.isNone
   check c1.nextLeaf.isNone
 
-test "prev/next item":
+customTest "prev/next item":
   # One leaf
   var a = SumTree[int, 2].new(@[1, 2])
   var c1 = a.initCursor
@@ -104,7 +112,7 @@ test "prev/next item":
   check c1.item.isNone
   check c1.nextItem.isNone
 
-test "prev":
+customTest "prev":
   # One leaf
   var a = SumTree[int, 2].new(@[1, 2])
   var c1 = a.initCursor
@@ -152,18 +160,7 @@ test "prev":
   check c1.item.isNone
   check c1.nextItem.mapIt(it[]) == 1.some
 
-template customTest(name: string, body): untyped =
-  test name:
-    defer:
-      assertNoLeaks()
-      GC_FullCollect()
-    body
-
 proc testAppend[C: static int](iterations: int, singleOwner: bool, base: int, balance: int) =
-  assertNoLeaks()
-  defer:
-    assertNoLeaks()
-
   # echo &"Append two trees 1 (single owner = {singleOwner}, base: {base}, bal: {balance}) C={$C}"
   var numbers1: seq[int]
   var numbers2: seq[int]
@@ -237,11 +234,10 @@ proc testAdd[C: static int](iterations: int, singleOwner: bool) =
         check c.toSeq & @[i] == numbers
 
 proc testN[C: static int](iterations: int) =
-  test &"add C={C}":
-    testAdd[C](iterations, true)
-    testAdd[C](iterations, false)
+  testAdd[C](iterations, true)
+  testAdd[C](iterations, false)
 
-  test &"first/last C={C}":
+  customTest &"first/last C={C}":
     var a = SumTree[int, C].new()
     check a.first.isNone
     check a.last.isNone
@@ -557,7 +553,7 @@ proc testN[C: static int](iterations: int) =
 
         m = max(m, numbers[i])
 
-    test &"suffix C=4":
+    customTest &"suffix C={C}":
       var a = SumTree[int, C].new()
       var c = a.initCursor Count
 
@@ -592,4 +588,4 @@ testN[4](100)
 testN[6](100)
 testN[8](100)
 testN[20](100)
-# testN[64](1000)
+# # testN[64](1000)

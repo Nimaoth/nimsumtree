@@ -52,6 +52,13 @@ func add*[T; C: static int](arr: var Array[T, C], vals: sink Array[T, C]) =
     arr.data[arr.len.int + i] = vals.data[i].move
   arr.len += vals.len
 
+func add*[T; C: static int](arr: var Array[T, C], vals: openArray[T]) =
+  assert C <= typeof(Array[T, C].default.len).high
+  assert arr.len.int + vals.len <= C
+  for i in 0..vals.high:
+    arr.data[arr.len.int + i] = vals[i]
+  arr.len += typeof(arr.len)(vals.len)
+
 macro evalOnceAs(expAlias, exp: untyped,
                  letAssigneable: static[bool]): untyped =
   ## Injects `expAlias` in caller scope, to avoid bugs involving multiple

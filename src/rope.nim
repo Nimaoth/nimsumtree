@@ -1,9 +1,10 @@
-import std/[unittest, enumerate, strformat, sugar, unicode, os]
-import nimsumtree/sumtree
+import std/[unittest, enumerate, strformat, sugar, os]
+import nimsumtree/[sumtree]
+import uni
 
-const chunkBase = 256
-const treeBase = 12
-# const chunkBase = 128
+const chunkBase = 4
+const treeBase = 2
+# const chunkBase = 256
 # const treeBase = 12
 
 type
@@ -27,6 +28,11 @@ type
 
 proc `=copy`*(a: var Chunk, b: Chunk) {.error.}
 proc `=dup`*(a: Chunk): Chunk {.error.}
+
+proc `$`*(r: Chunk): string =
+  result = "["
+  result.add r.data.toOpenArray.join("")
+  result.add "]"
 
 func clone*(a: TextSummary): TextSummary = a
 
@@ -124,13 +130,13 @@ func addSummary*(a: var TextSummary, b: TextSummary) =
 
 func fromSummary*(_: typedesc[TextSummary], a: TextSummary): TextSummary = a
 
-func summary*(x: Chunk): TextSummary =
+proc summary*(x: Chunk): TextSummary =
   result.bytes = x.data.len
 
   for r in x.data.toOpenArray.runes:
     result.len += 1.Count
 
-    if r.char == '\n':
+    if r == '\n'.Rune:
       if result.lines.column > result.longestRowChars:
         result.longestRowChars = result.lines.column
         result.longestRow = result.lines.row
@@ -163,6 +169,8 @@ type
 
 proc `=copy`*(a: var Rope, b: Rope) {.error.}
 proc `=dup`*(a: Rope): Rope {.error.}
+
+proc clone*(a: Chunk): Chunk = Chunk(data: a.data)
 
 func bytes*(self: Rope): int =
   return self.tree.summary.bytes
@@ -204,13 +212,47 @@ proc new*(_: typedesc[Rope], value: string = ""): Rope =
 
   result.tree = SumTree[Chunk, treeBase].new(chunks)
 
-proc `$`*(r: Chunk): string =
-  result = "["
-  result.add r.data.toOpenArray.join("")
-  result.add "]"
-
 proc `$`*(r: Rope): string =
   result = "Rope("
   for chunk in r.tree:
     result.add chunk.data.toOpenArray.join("")
   result.add ")"
+
+proc add*(self: var Chunk, text: openArray[char]) =
+  self.data.add text
+
+proc add*(self: var Rope, text: string) =
+  var textLen = text.len
+  var textPtr: ptr UncheckedArray[char] = cast[ptr UncheckedArray[char]](text[0].addr)
+  template text: untyped = textPtr.toOpenArray(0, textLen - 1)
+
+  self.tree.updateLast proc(chunk: var Chunk) =
+    let splitIndex = if chunk.data.len + textLen <= chunkBase:
+      textLen
+    else:
+      # todo: saturatingSub(chunkBase, chunk.data.len)
+      text.runeStart(min(chunkBase - chunk.data.len, textLen))
+
+    if splitIndex == 0:
+      return
+
+    chunk.add text[0..<splitIndex]
+
+    if splitIndex < text.len:
+      textPtr = cast[ptr UncheckedArray[char]](text[splitIndex].addr)
+    textLen -= splitIndex
+
+    assert textLen >= 0
+
+  if text.len == 0:
+    return
+
+  var chunks = newSeq[Chunk]()
+
+  var i = 0
+  while i < text.len:
+    let last = min(i + chunkBase, text.len)
+    chunks.add Chunk(data: text[i..<last].toArray(chunkBase))
+    i = last
+
+  self.tree.extend(chunks)

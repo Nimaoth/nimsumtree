@@ -2,32 +2,36 @@ import std/[unittest, enumerate, strformat, sugar, os]
 import nimsumtree/[sumtree]
 import uni
 
-const chunkBase = 4
-const treeBase = 2
-# const chunkBase = 256
-# const treeBase = 12
+# const chunkBase = 4
+# const treeBase = 2
+const chunkBase = 256
+const treeBase = 12
 
 type
   Count* = distinct int
 
   Point* = object
-    row*: uint32
-    column*: uint32
+    row*: uint32    ## Number of newlines
+    column*: uint32 ## In bytes
 
   TextSummary* = object
     bytes*: int
     len*: Count
     lines*: Point
-    firstLineChars*: uint32
-    lastLineChars*: uint32
+    firstLineChars*: Count
+    lastLineChars*: Count
     longestRow*: uint32
-    longestRowChars*: uint32
+    longestRowChars*: Count
 
   Chunk* = object
     data: Array[char, chunkBase]
 
 proc `=copy`*(a: var Chunk, b: Chunk) {.error.}
 proc `=dup`*(a: Chunk): Chunk {.error.}
+
+proc `+`*(a: Count, b: Count): Count {.borrow.}
+proc `<`*(a: Count, b: Count): bool {.borrow.}
+proc `<=`*(a: Count, b: Count): bool {.borrow.}
 
 proc `$`*(r: Chunk): string =
   result = "["
@@ -57,6 +61,16 @@ func `+=`*(a: var Point, b: Point) =
 func `+`*(a: Point, b: Point): Point =
   result = a
   result += b
+
+func `<`*(a: Point, b: Point): bool =
+  if a.row == b.row:
+    return a.column < b.column
+  return a.row < b.row
+
+func `<=`*(a: Point, b: Point): bool =
+  if a.row == b.row:
+    return a.column <= b.column
+  return a.row <= b.row
 
 func addSummary*(a: var Point, b: Point) = a += b
 func clone*(a: Point): Point = a
@@ -130,6 +144,12 @@ func addSummary*(a: var TextSummary, b: TextSummary) =
 
 func fromSummary*(_: typedesc[TextSummary], a: TextSummary): TextSummary = a
 
+################### Chunk ###################
+
+proc clone*(a: Chunk): Chunk = Chunk(data: a.data)
+proc toChunk*(text: string): Chunk = Chunk(data: text.toOpenArray(0, text.high).toArray(chunkBase))
+proc toChunk*(text: openArray[char]): Chunk = Chunk(data: text.toArray(chunkBase))
+
 proc summary*(x: Chunk): TextSummary =
   result.bytes = x.data.len
 
@@ -137,31 +157,121 @@ proc summary*(x: Chunk): TextSummary =
     result.len += 1.Count
 
     if r == '\n'.Rune:
-      if result.lines.column > result.longestRowChars:
-        result.longestRowChars = result.lines.column
-        result.longestRow = result.lines.row
-
-      if result.lines.row == 0:
-        result.firstLineChars = result.lines.column
-
-      result.lines.row += 1
-      result.lines.column = 0
-
+      result.lines += Point(row: 1, column: 0)
+      result.lastLineChars = 0.Count
     else:
-      result.lines.column += 1
+      result.lines.column += r.size.uint32
+      result.lastLineChars += 1.Count
 
-  if result.lines.column > result.longestRowChars:
-    result.longestRowChars = result.lines.column
-    result.longestRow = result.lines.row
-  if result.lines.row == 0:
-    result.firstLineChars = result.lines.column
+    if result.lines.row == 0:
+      result.firstLineChars = result.lastLineChars
 
-  result.lastLineChars = result.lines.column
+    if result.lastLineChars > result.longestRowChars:
+      result.longestRow = result.lines.row
+      result.longestRowChars = result.lastLineChars
 
-# func toArray*(arr: openArray[Chunk]): Array[Chunk, treeBase] =
-#   result.len = arr.len
-#   for i in 0..<arr.len:
-#     result[i] = arr[i]
+proc offsetToCount*(self: Chunk, target: int): Count =
+  var offset = 0
+  for r in self.data.toOpenArray.runes:
+    if offset >= target:
+      break
+    offset += r.size
+    result += 1.Count
+
+proc countToOffset*(self: Chunk, target: Count): int =
+  var offset = 0.Count
+  for r in self.data.toOpenArray.runes:
+    if offset >= target:
+      break
+    result += r.size
+    offset += 1.Count
+
+proc offsetToPoint*(self: Chunk, target: int): Point =
+  var offset = 0
+  for r in self.data.toOpenArray.runes:
+    if offset >= target:
+      break
+    if r == '\n'.Rune:
+      result.row += 1
+      result.column = 0
+    else:
+      result.column += r.size.uint32
+    offset += r.size
+
+proc countToPoint*(self: Chunk, target: Count): Point =
+  var offset = 0.Count
+  for r in self.data.toOpenArray.runes:
+    if offset >= target:
+      break
+    if r == '\n'.Rune:
+      result.row += 1
+      result.column = 0
+    else:
+      result.column += r.size.uint32
+    offset += 1.Count
+
+proc pointToOffset*(self: Chunk, target: Point): int =
+  var point = Point()
+  for r in self.data.toOpenArray.runes:
+    if point >= target:
+      assert point == target, &"Target {target} is inside of character '{r}'"
+      break
+
+    if r == '\n'.Rune:
+      point.row += 1
+      point.column = 0
+
+      if point.row > target.row:
+        assert false, &"Target {target} is beyond the end of a line with length {point.column}"
+        break
+    else:
+      point.column += r.size.uint32
+
+    result += r.size
+
+proc pointToCount*(self: Chunk, target: Point): Count =
+  var point = Point()
+  for r in self.data.toOpenArray.runes:
+    if point >= target:
+      assert point == target, &"Target {target} is inside of character '{r}'"
+      break
+
+    if r == '\n'.Rune:
+      point.row += 1
+      point.column = 0
+
+      if point.row > target.row:
+        assert false, &"Target {target} is beyond the end of a line with length {point.column}"
+        break
+    else:
+      point.column += r.size.uint32
+
+    inc result
+
+proc clipPoint*(self: Chunk, target: Point, bias: Bias): Point =
+  for (row, slice) in self.data.toOpenArray.lineRanges:
+    if target.row.int != row:
+      continue
+
+    let len = slice.b - slice.a + 1
+    template bytes: untyped = self.data.toOpenArray[slice]
+
+    var column = min(target.column.int, len)
+    if column == 0 or column == len or (bytes[column - 1].int < 128 and bytes[column].int < 128):
+      return Point(row: row.uint32, column: column.uint32)
+
+    while true:
+      if bytes.isCharBoundary(column):
+        # todo: grapheme clusters
+        break
+
+      case bias
+      of Left: column -= 1
+      of Right: column += 1
+
+    return Point(row: row.uint32, column: column.uint32)
+
+  assert false
 
 type
   Rope* = object
@@ -169,8 +279,6 @@ type
 
 proc `=copy`*(a: var Rope, b: Rope) {.error.}
 proc `=dup`*(a: Rope): Rope {.error.}
-
-proc clone*(a: Chunk): Chunk = Chunk(data: a.data)
 
 func bytes*(self: Rope): int =
   return self.tree.summary.bytes
@@ -180,18 +288,6 @@ func chars*(self: Rope): int =
 
 func lines*(self: Rope): Point =
   return self.tree.summary.lines
-
-proc offsetToPoint*(self: Chunk, target: int): Point =
-  var offset = 0
-  for r in self.data.toOpenArray.runes:
-    if offset >= target:
-      break
-    if r.char == '\n':
-      result.row += 1
-      result.column = 0
-    else:
-      result.column += r.size.uint32
-    offset += r.size
 
 proc offsetToPoint*(self: Rope, offset: int): Point =
   if offset >= self.tree.summary.len.int:

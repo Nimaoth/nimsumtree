@@ -112,6 +112,13 @@ proc runeStart*(s: openArray[char], offset: Natural): Natural =
     while offset - L >= 0 and uint(s[offset - L]) shr 6 == 0b10: inc(L)
     result = offset - L
 
+proc isCharBoundary*(s: openArray[char], offset: Natural): bool =
+  if offset < 0 or offset > s.len:
+    return false
+  if offset == 0 or offset == s.len:
+    return true
+  s[offset] <= 127.chr or s[offset] >= 192.chr
+
 proc nextRuneStart*(s: openArray[char], offset: Natural): Natural =
   if s[offset] <= chr(127):
     result = offset + 1
@@ -138,3 +145,46 @@ proc nextRuneStart*(s: string, offset: Natural): Natural =
 
 proc runeSize*(s: string, offset: Natural): Natural =
   return s.toOA.runeSize(offset)
+
+func find*[T](arr: openArray[T], val: T, start: int = 0): int =
+  result = -1
+  for i in start..<arr.len:
+    if arr[i] == val:
+      return i
+
+iterator lineRanges*(arr: openArray[char]): tuple[line: int, slice: Slice[int]] =
+  var slice: Slice[int]
+  var index = arr.find('\n')
+  if index == -1:
+    yield (0, 0..arr.high)
+  else:
+    yield (0, 0..<index)
+
+    var line = 1
+    while true:
+      let nextIndex = arr.find('\n', index + 1)
+      if nextIndex == -1:
+        break
+      yield (line, (index + 1)..<nextIndex)
+      index = nextIndex
+      inc line
+
+    yield (line, (index + 1)..<arr.len)
+
+when isMainModule:
+  for (row, slice) in "".lineRanges:
+    assert row == 0
+    assert slice == 0..<0
+
+  for (row, slice) in "abc".lineRanges:
+    assert row == 0
+    assert slice == 0..<3
+
+  for (row, slice) in "abc\n".lineRanges:
+    assert slice == [(0..<3), (4..<4)][row]
+
+  for (row, slice) in "abc\ncde".lineRanges:
+    assert slice == [(0..<3), (4..<7)][row]
+
+  for (row, slice) in "\nabc\ncde\n".lineRanges:
+    assert slice == [(0..<0), (1..<4), (5..<8), (9..<9)][row]

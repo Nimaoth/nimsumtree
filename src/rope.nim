@@ -2,10 +2,15 @@ import std/[unittest, enumerate, strformat, sugar, os]
 import nimsumtree/[sumtree]
 import uni
 
-# const chunkBase* = 16
-# const treeBase = 2
-const chunkBase* = 256
-const treeBase* = 12
+when defined(testing):
+  const chunkBase* = 16
+  const treeBase = 2
+  static:
+    echo &"Rope: test environment, use chunkBase = {chunkBase} and treeBase = {treeBase}"
+
+else:
+  const chunkBase* = 256
+  const treeBase* = 12
 
 when chunkBase < 4:
   {.error: "chunkBase must be >= 4 because utf-8 characters can be encoded with " &
@@ -301,7 +306,8 @@ type
 proc `=copy`*(a: var Rope, b: Rope) {.error.}
 proc `=dup`*(a: Rope): Rope {.error.}
 
-proc checkInvariants*(self: Rope) = discard
+proc checkInvariants*(self: Rope) =
+  self.tree.checkInvariants()
 
 func bytes*(self: Rope): int =
   return self.tree.summary.bytes
@@ -425,6 +431,7 @@ proc add*(self: var Rope, text: openArray[char]) =
     i = last
 
   self.tree.extend(chunks)
+  self.checkInvariants()
 
 proc add*(self: var Rope, text: string) =
   self.add text.toOpenArray(0, text.high)
@@ -447,6 +454,7 @@ proc addFront*(self: var Rope, text: openArray[char]) =
   let suffix = self.move
   self = Rope.new(text)
   self.add suffix
+  self.checkInvariants()
 
 proc addFront*(self: var Rope, text: string) =
   self.addFront text.toOpenArray(0, text.high)
@@ -464,6 +472,7 @@ proc replace*(self: var Rope, slice: ByteRange, text: openArray[char]) =
   newRope.add(text)
   newRope.add(cursor.suffix())
   self = newRope
+  self.checkInvariants()
 
 proc replace*(self: var Rope, slice: ByteRange, text: string) =
   self.replace(slice, text.toOpenArray(0, text.high))
@@ -471,7 +480,8 @@ proc replace*(self: var Rope, slice: ByteRange, text: string) =
 proc slice*(self: Rope, slice: ByteRange): Rope =
   var cursor = self.cursor()
   cursor.seekForward(slice.first)
-  cursor.slice(slice.last)
+  result = cursor.slice(slice.last)
+  result.checkInvariants()
 
 proc slice*(self: Rope, first, last: int): Rope =
   self.slice((first, last))
@@ -514,6 +524,7 @@ proc slice*(self: var RopeCursor, target: int): Rope =
       result.add(endChunk.get[].data.toOpenArray(0, endIndex - 1))
 
   self.offset = target
+  result.checkInvariants()
 
 proc summary*(self: var RopeCursor, D: typedesc[Dimension], target: int): D =
   assert target >= self.offset

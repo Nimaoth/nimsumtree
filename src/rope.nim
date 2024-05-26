@@ -19,6 +19,8 @@ type
     row*: uint32    ## Number of newlines
     column*: uint32 ## In bytes
 
+  ByteRange* = tuple[first, last: int] ## First inclusive, last exclusive
+
   TextSummary* = object
     bytes*: int
     len*: Count
@@ -358,7 +360,7 @@ proc pointToCount*(self: Rope, target: Point): Count =
   let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].pointToCount(overshoot)).get(0.Count)
 
-proc new*(_: typedesc[Rope], value: string = ""): Rope =
+proc new*(_: typedesc[Rope], value: openArray[char]): Rope =
   var chunks = newSeq[Chunk]()
 
   var i = 0
@@ -369,7 +371,14 @@ proc new*(_: typedesc[Rope], value: string = ""): Rope =
 
   result.tree = SumTree[Chunk, treeBase].new(chunks)
 
-proc toRope*(value: string): Rope = Rope.new(value)
+proc toRope*(value: openArray[char]): Rope =
+  Rope.new(value)
+
+proc new*(_: typedesc[Rope], value: string = ""): Rope =
+  Rope.new(value.toOpenArray(0, value.high))
+
+proc toRope*(value: string): Rope =
+  Rope.new(value)
 
 proc `$`*(r: Rope): string =
   for chunk in r.tree:
@@ -434,6 +443,47 @@ proc add*(self: var Rope, rope: sink Rope) =
   self.tree.append(chunks.suffix())
   self.checkInvariants()
 
+proc addFront*(self: var Rope, text: openArray[char]) =
+  let suffix = self.move
+  self = Rope.new(text)
+  self.add suffix
+
+proc addFront*(self: var Rope, text: string) =
+  self.addFront text.toOpenArray(0, text.high)
+
+proc cursor*(self {.byref.}: Rope, offset: int = 0): RopeCursor
+proc seekForward*(self: var RopeCursor, target: int)
+proc slice*(self: var RopeCursor, target: int): Rope
+proc suffix*(self: var RopeCursor): Rope
+
+proc replace*(self: var Rope, slice: ByteRange, text: openArray[char]) =
+  var newRope = Rope.new()
+  var cursor = self.cursor()
+  newRope.add(cursor.slice(slice.first))
+  cursor.seekForward(slice.last)
+  newRope.add(text)
+  newRope.add(cursor.suffix())
+  self = newRope
+
+proc replace*(self: var Rope, slice: ByteRange, text: string) =
+  self.replace(slice, text.toOpenArray(0, text.high))
+
+proc slice*(self: Rope, slice: ByteRange): Rope =
+  var cursor = self.cursor()
+  cursor.seekForward(slice.first)
+  cursor.slice(slice.last)
+
+proc slice*(self: Rope, first, last: int): Rope =
+  self.slice((first, last))
+
+proc sliceRows*(self: Rope, slice: ByteRange): Rope =
+  let startOffset = self.pointToOffset(Point.init(slice.first, 0))
+  let endOffset = self.pointToOffset(Point.init(slice.last, 0))
+  self.slice((startOffset, endOffset))
+
+proc sliceRows*(self: Rope, first, last: int): Rope =
+  self.sliceRows((first, last))
+
 proc cursor*(self {.byref.}: Rope, offset: int = 0): RopeCursor =
   result.rope = self.addr
   result.chunks = self.tree.initCursor int
@@ -490,13 +540,3 @@ proc suffix*(self: var RopeCursor): Rope =
 
 proc offset*(self: RopeCursor): int =
   self.offset
-
-proc `[]`*(self: Rope, slice: Slice[int]): Rope =
-  var cursor = self.cursor()
-  cursor.seekForward slice.a
-  cursor.slice(slice.b + 1)
-
-proc sliceRows*(self: Rope, slice: Slice[int]): Rope =
-  let startOffset = self.pointToOffset(Point.init(slice.a, 0))
-  let endOffset = self.pointToOffset(Point.init(slice.b + 1, 0))
-  self[startOffset..<endOffset]

@@ -759,7 +759,6 @@ proc add*[I](self: var SumTree[I], item: sink I) =
   self.checkInvariants()
 
 func initCursor*[I](self {.byref.}: SumTree[I], D: typedesc): Cursor[I, D] =
-
   result.node = self.root
   result.position = D.default
   result.atEnd = self.root.isEmpty
@@ -927,7 +926,7 @@ proc suffix*[I; D](self: var Cursor[I, D]): SumTree[I] =
   ## to the end. #todo: current node included?
   self.slice(End[D](), Right)
 
-proc nextInternal[I; D](self: var Cursor[I, D], filterNode: proc(s: I.summaryType): bool) =
+func nextInternal[I; D](self: var Cursor[I, D], filterNode: proc(s: I.summaryType): bool {.noSideEffect.}) =
   ## Moves the cursor to the next leaf
   mixin addSummary
 
@@ -1009,11 +1008,11 @@ proc nextInternal[I; D](self: var Cursor[I, D], filterNode: proc(s: I.summaryTyp
 
     self.atEnd = self.stack.len == 0
 
-proc next*[I; D](self: var Cursor[I, D]) =
+func next*[I; D](self: var Cursor[I, D]) =
   ## Moves the cursor to the next leaf
   self.nextInternal((_: I.summaryType) => true)
 
-proc prevInternal[I; D](self: var Cursor[I, D], filterNode: proc(s: I.summaryType): bool) =
+func prevInternal[I; D](self: var Cursor[I, D], filterNode: proc(s: I.summaryType): bool {.noSideEffect.}) =
   ## Moves the cursor to the prev leaf
   mixin addSummary
 
@@ -1079,7 +1078,7 @@ proc prevInternal[I; D](self: var Cursor[I, D], filterNode: proc(s: I.summaryTyp
       if descend:
         break
 
-proc prev*[I; D](self: var Cursor[I, D]) =
+func prev*[I; D](self: var Cursor[I, D]) =
   ## Moves the cursor to the prev leaf
   self.prevInternal((_: I.summaryType) => true)
 

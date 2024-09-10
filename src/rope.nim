@@ -4,13 +4,11 @@ import uni
 
 when defined(testing):
   const chunkBase* = 16
-  const treeBase = 2
   static:
-    echo &"Rope: test environment, use chunkBase = {chunkBase} and treeBase = {treeBase}"
+    echo &"Rope: test environment, use chunkBase = {chunkBase}"
 
 else:
   const chunkBase* = 256
-  const treeBase* = 12
 
 when chunkBase < 4:
   {.error: "chunkBase must be >= 4 because utf-8 characters can be encoded with " &
@@ -296,11 +294,11 @@ proc clipPoint*(self: Chunk, target: Point, bias: Bias): Point =
 
 type
   Rope* = object
-    tree*: SumTree[Chunk, treeBase]
+    tree*: SumTree[Chunk]
 
   RopeCursor* = object
     rope: ptr Rope
-    chunks: Cursor[Chunk, int, treeBase]
+    chunks: Cursor[Chunk, int]
     offset: int
 
 proc `=copy`*(a: var Rope, b: Rope) {.error.}
@@ -375,7 +373,7 @@ proc new*(_: typedesc[Rope], value: openArray[char]): Rope =
     chunks.add Chunk(data: value.toOpenArray(i, last - 1).toArray(chunkBase))
     i = last
 
-  result.tree = SumTree[Chunk, treeBase].new(chunks)
+  result.tree = SumTree[Chunk].new(chunks)
 
 proc toRope*(value: openArray[char]): Rope =
   Rope.new(value)
@@ -526,7 +524,7 @@ proc slice*(self: var RopeCursor, target: int): Rope =
   self.offset = target
   result.checkInvariants()
 
-proc summary*(self: var RopeCursor, D: typedesc[Dimension], target: int): D =
+proc summary*(self: var RopeCursor, D: typedesc, target: int): D =
   assert target >= self.offset
 
   result = D.default

@@ -8,70 +8,89 @@ const debugAppend = false
 
 var recursion = 0
 
+# todo: at some point use concepts when they work
+# type
+#   Summary* = concept var a, b
+#     a += b
+#     a.addSummary(b)
+
+#   Item* = concept a, type T of Clone
+#     a.summary is Summary
+
+#   Dimension* = concept var a, b, type T
+#     # a.addSummary(c) # Causes issues with ambigous symbols
+#     b.clone() is T
+#     T.fromSummary(Summary) is T
+
+#   SeekTarget*[S: Summary, D: Dimension[S]] {.explain.} = concept a, type S, type D
+#     S is Summary
+#     D is Dimension[S]
+#     var b: D
+#     cmp(a, b) is int
+
+const sumTreeBase {.intdefine.} = 0
+when sumTreeBase > 0:
+  const treeBase* = sumTreeBase
+
+elif defined(testing):
+  import std/strutils
+
+  const treeBase* = 2
+  static:
+    echo &"Sumtree: test environment, use treeBase = {treeBase}"
+
+else:
+  const treeBase* = 12
+
+static:
+  assert treeBase mod 2 == 0
+
 type
-  Summary* = concept var a, b
-    a += b
-    a.addSummary(b)
-
-  Item* = concept a, type T of Clone
-    a.summary is Summary
-
-  Dimension* = concept var a, b, type T
-    # a.addSummary(c) # Causes issues with ambigous symbols
-    b.clone() is T
-    T.fromSummary(Summary) is T
-
-  # SeekTarget*[S: Summary, D: Dimension[S]] {.explain.} = concept a, type S, type D
-  #   S is Summary
-  #   D is Dimension[S]
-  #   var b: D
-  #   cmp(a, b) is int
-
   Bias* = enum Left, Right
 
 template summaryType*(T: typedesc): untyped = typeof(T.default.summary)
-template summaryArrayType*(T: typedesc, C: static int): untyped = Array[typeof(T.default.summary), C]
+template summaryArrayType*(T: typedesc): untyped = Array[typeof(T.default.summary), treeBase]
 
 type
-  ItemArray*[T; C: static int] = Array[T, C]
+  ItemArray*[T] = Array[T, treeBase]
 
-  SummaryArray*[T; C: static int] = Array[T, C]
+  SummaryArray*[T] = Array[T, treeBase]
 
   HeightType = uint16
 
   NodeKind* = enum Internal, Leaf
-  Node*[T; C: static int] = object
+  Node*[T] = object
     mSummary: T.summaryType
-    mSummaries: summaryArrayType(T, C)
+    mSummaries: T.summaryArrayType
     case kind: NodeKind
     of Internal:
       mHeight: HeightType
-      mChildren: Array[Arc[Node[T, C]], C]
+      mChildren: Array[Arc[Node[T]], treeBase]
     of Leaf:
-      mItemArray: Array[T, C]
+      mItemArray: Array[T, treeBase]
 
-  ChildArray*[T; C: static int] = Array[Arc[Node[T, C]], C]
+  ChildArray*[T] = Array[Arc[Node[T]], treeBase]
 
-  ArcNode*[T; C: static int] = Arc[Node[T, C]]
-  SumTree*[T; C: static int] = object
-    root: Arc[Node[T, C]]
+  ArcNode*[T] = Arc[Node[T]]
+  SumTree*[T] = object
+    root: Arc[Node[T]]
 
-  SeekAggregate* = concept var a
-    type T = Item
-    type S = Summary
-    beginLeaf(a)
-    endLeaf(a)
-    pushItem(a, T, S)
-    # pushTree(a, SumTree[T, 5], S)
+  # SeekAggregate* = concept var a
+  #   type T = Item
+  #   type S = Summary
+  #   beginLeaf(a)
+  #   endLeaf(a)
+  #   pushItem(a, T, S)
+  #   # pushTree(a, SumTree[T, 5], S)
 
-  StackEntry*[T: Item; D; C: static int] = object
-    node {.cursor.}: Arc[Node[T, C]]
+  StackEntry*[T; D] = object
+    node {.cursor.}: Arc[Node[T]]
     index: int
     position: D
 
-  Cursor*[T: Item; D; C: static int] = object
-    node {.cursor.}: Arc[Node[T, C]]
-    stack: seq[StackEntry[T, D, C]]
+  Cursor*[T; D] = object
+    node {.cursor.}: Arc[Node[T]]
+    stack: seq[StackEntry[T, D]]
     position: D
     didSeek: bool
     atEnd: bool
@@ -94,27 +113,27 @@ type
 #   echo sizeof(ArcNode[Data, size])
 #   echo sizeof(Array[ArcNode[Data, size], size])
 
-proc `=copy`*[T; C: static int](a: var Node[T, C], b: Node[T, C]) {.error.}
-proc `=dup`*[T; C: static int](a: Node[T, C]): Node[T, C] {.error.}
+proc `=copy`*[T](a: var Node[T], b: Node[T]) {.error.}
+proc `=dup`*[T](a: Node[T]): Node[T] {.error.}
 
-proc `=copy`*[T; C: static int](a: var SumTree[T, C], b: SumTree[T, C]) {.error.}
-proc `=dup`*[T; C: static int](a: SumTree[T, C]): SumTree[T, C] {.error.}
+proc `=copy`*[T](a: var SumTree[T], b: SumTree[T]) {.error.}
+proc `=dup`*[T](a: SumTree[T]): SumTree[T] {.error.}
 
-proc `$`*[T: Item; C: static int](node {.byref.}: Node[T, C]): string =
+proc `$`*[T](node {.byref.}: Node[T]): string =
   case node.kind:
   of Internal:
     &"Internal(h: {node.mHeight}, {node.mSummary}, children: {node.mChildren.len})"
   of Leaf:
     &"Leaf({node.mSummary}, items: {node.mItemArray.len})"
 
-proc `$`*[T: Item; C: static int](tree {.byref.}: SumTree[T, C]): string = $tree.root
+proc `$`*[T](tree {.byref.}: SumTree[T]): string = $tree.root
 
 proc `$`*(entry: StackEntry): string = &"(p: {entry.position}, i: {entry.index})"
 
 proc `$`*(cursor: Cursor): string =
   &"Cursor(p: {cursor.position}, s: {cursor.didSeek}, e: {cursor.atEnd}, st: {cursor.stack})"
 
-func pretty*[T: Item; C: static int](node {.byref.}: Node[T, C], id: int = 0, count: int = 0): string =
+func pretty*[T](node {.byref.}: Node[T], id: int = 0, count: int = 0): string =
   case node.kind:
   of Internal:
     result = &"Internal(_{id}, #{count}, {node.mSummary}, {node.mChildren.high}):\n"
@@ -129,7 +148,7 @@ func pretty*[T: Item; C: static int](node {.byref.}: Node[T, C], id: int = 0, co
     result = &"Leaf(_{id}, #{count}, {node.mSummary}, {node.mItemArray})"
     # result = &"Leaf(_{id}, #{count}, {node.mSummary}, {node.mItemArray}, {node.mSummaries})"
 
-proc checkInvariants[T; C: static int](self: ArcNode[T, C], allowUnderflow: bool = true) =
+proc checkInvariants[T](self: ArcNode[T], allowUnderflow: bool = true) =
   when defined(testing):
     template node: untyped = self.get
 
@@ -156,7 +175,7 @@ proc checkInvariants[T; C: static int](self: ArcNode[T, C], allowUnderflow: bool
       for i in 0..<node.mItemArray.len:
         assert node.mSummaries[i] == node.mItemArray[i].summary, &"Item summary doesn't match cached ({i}): {self.pretty}"
 
-proc checkInvariants*[T; C: static int](self: SumTree[T, C]) =
+proc checkInvariants*[T](self: SumTree[T]) =
   when defined(testing):
     self.root.checkInvariants(true)
 
@@ -172,13 +191,13 @@ template mapIt*[T](self: Option[T], op: untyped): untyped =
     OutType.none
 
 type End*[D] = object
-func cmp*[D: Dimension](a: End[D], b: D): int = 1
+func cmp*[D](a: End[D], b: D): int = 1
 
 # impl SeekAggregate for tuple[]
 proc beginLeaf*(a: var tuple[]) = discard
 proc endLeaf*(a: var tuple[]) = discard
 proc pushItem*[T; S](a: var tuple[], item: T, summary: S) = discard
-proc pushTree*[T; S; C: static int](a: var tuple[], self: ArcNode[T, C], summary: S) = discard
+proc pushTree*[T; S](a: var tuple[], self: ArcNode[T], summary: S) = discard
 
 type DebugSeekAggregate* = object
 
@@ -192,8 +211,7 @@ proc endLeaf*(a: var DebugSeekAggregate) =
 proc pushItem*[T; S](a: var DebugSeekAggregate, item: T, summary: S) =
   echo &"pushItem {item}, {summary}"
 
-proc pushTree*[T; S: Summary; C: static int](
-    a: var DebugSeekAggregate, self: ArcNode[T, C], summary: S) =
+proc pushTree*[T; S](a: var DebugSeekAggregate, self: ArcNode[T], summary: S) =
   echo &"pushTree {self}, {summary}"
 
 type SummarySeekAggregate*[D] = object
@@ -207,21 +225,20 @@ proc pushItem*[D; T; S](a: var SummarySeekAggregate[D], item: T, summary: S) =
   mixin addSummary
   a.value.addSummary(summary)
 
-proc pushTree*[D; T; S: Summary; C: static int](
-    a: var SummarySeekAggregate[D], self: ArcNode[T, C], summary: S) =
+proc pushTree*[D; T; S](a: var SummarySeekAggregate[D], self: ArcNode[T], summary: S) =
   mixin addSummary
   a.value.addSummary(summary)
 
-type SliceSeekAggregate*[T; C: static int] = object
-  node: ArcNode[T, C]
-  leafItems: Array[T, C]
-  leafItemSummaries: summaryArrayType(T, C)
+type SliceSeekAggregate*[T] = object
+  node: ArcNode[T]
+  leafItems: Array[T, treeBase]
+  leafItemSummaries: T.summaryArrayType
   leafSummary: T.summaryType
 
 # impl SeekAggregate for SliceSeekAggregate
-proc beginLeaf*[T; C: static int](self: var SliceSeekAggregate[T, C]) = discard
-proc endLeaf*[T; C: static int](self: var SliceSeekAggregate[T, C]) =
-  self.node.append Arc.new(Node[T, C](
+proc beginLeaf*[T](self: var SliceSeekAggregate[T]) = discard
+proc endLeaf*[T](self: var SliceSeekAggregate[T]) =
+  self.node.append Arc.new(Node[T](
     kind: Leaf,
     mSummary: self.leafSummary.move,
     mSummaries: self.leafItemSummaries.move,
@@ -229,24 +246,23 @@ proc endLeaf*[T; C: static int](self: var SliceSeekAggregate[T, C]) =
   ))
 
   assert self.leafSummary == T.summaryType.default
-  assert self.leafItemSummaries == T.summaryArrayType(C).default
+  assert self.leafItemSummaries == T.summaryArrayType.default
 
-proc pushItem*[T; S; C: static int](self: var SliceSeekAggregate[T, C], item: T, summary: S) =
+proc pushItem*[T; S](self: var SliceSeekAggregate[T], item: T, summary: S) =
   mixin addSummary
   self.leafItems.add item.clone()
   self.leafItemSummaries.add summary.clone()
   self.leafSummary += summary
 
-proc pushTree*[T; S: Summary; C: static int](
-    self: var SliceSeekAggregate[T, C], node: ArcNode[T, C], summary: S) =
+proc pushTree*[T; S](self: var SliceSeekAggregate[T], node: ArcNode[T], summary: S) =
   self.node.append(node.clone())
 
-func pretty*[T: Item; C: static int](node{.byref.}: ArcNode[T, C]): string =
+func pretty*[T](node{.byref.}: ArcNode[T]): string =
   let id = node.id
   let count = node.count
   node.get.pretty(id, count)
 
-func pretty*[T: Item; C: static int](tree {.byref.}: SumTree[T, C]): string =
+func pretty*[T](tree {.byref.}: SumTree[T]): string =
   let id = tree.root.id
   let count = tree.root.count
   tree.root.get.pretty(id, count)
@@ -256,7 +272,7 @@ func invert*(bias: Bias): Bias =
   of Left: Right
   of Right: Left
 
-func `==`*[T: Item; C: static int](a {.byref.}: Node[T, C], b {.byref.}: Node[T, C]): bool =
+func `==`*[T](a {.byref.}: Node[T], b {.byref.}: Node[T]): bool =
   if a.kind != b.kind:
     return false
   if a.summary != b.summary:
@@ -274,26 +290,26 @@ func `==`*[T: Item; C: static int](a {.byref.}: Node[T, C], b {.byref.}: Node[T,
       return false
     return a.mChildren == b.mChildren
 
-func isLeaf*[T: Item; C: static int](node: Node[T, C]): bool = node.kind == Leaf
-func isInternal*[T: Item; C: static int](node: Node[T, C]): bool = node.kind == Internal
+func isLeaf*[T](node: Node[T]): bool = node.kind == Leaf
+func isInternal*[T](node: Node[T]): bool = node.kind == Internal
 
-func height*[T: Item; C: static int](node: Node[T, C]): int =
+func height*[T](node: Node[T]): int =
   case node.kind
   of Internal:
     node.mHeight.int
   of Leaf:
     0
 
-func isLeaf*[T: Item; C: static int](node: ArcNode[T, C]): bool = node.get.isLeaf
-func isInternal*[T: Item; C: static int](node: ArcNode[T, C]): bool = node.get.isInternal
+func isLeaf*[T](node: ArcNode[T]): bool = node.get.isLeaf
+func isInternal*[T](node: ArcNode[T]): bool = node.get.isInternal
 
-func isLeaf*[T: Item; C: static int](tree: SumTree[T, C]): bool = tree.root.get.isLeaf
-func isInternal*[T: Item; C: static int](tree: SumTree[T, C]): bool = tree.root.get.isInternal
+func isLeaf*[T](tree: SumTree[T]): bool = tree.root.get.isLeaf
+func isInternal*[T](tree: SumTree[T]): bool = tree.root.get.isInternal
 
-func height*[T: Item; C: static int](node: ArcNode[T, C]): int = node.get.height
-func height*[T: Item; C: static int](tree: SumTree[T, C]): int = tree.root.height
+func height*[T](node: ArcNode[T]): int = node.get.height
+func height*[T](tree: SumTree[T]): int = tree.root.height
 
-func sum*[T: Summary; C: static int](arr {.byref.}: Array[T, C]): T =
+func sum*[T](arr {.byref.}: Array[T, treeBase]): T =
   mixin addSummary
   if arr.len == 0:
     result = T.default
@@ -302,48 +318,48 @@ func sum*[T: Summary; C: static int](arr {.byref.}: Array[T, C]): T =
     for i in 1..arr.high:
       result.addSummary(arr[i])
 
-func summary*[T: Item; C: static int](node: Node[T, C]): T.summaryType = node.mSummary
-func summary*[T: Item; C: static int](node: ArcNode[T, C]): T.summaryType = node.get.summary
-func summary*[T: Item; C: static int](tree: SumTree[T, C]): T.summaryType = tree.root.summary
-func extent*[T: Item; C: static int](tree: SumTree[T, C], D: typedesc[Dimension]): D =
+func summary*[T](node: Node[T]): T.summaryType = node.mSummary
+func summary*[T](node: ArcNode[T]): T.summaryType = node.get.summary
+func summary*[T](tree: SumTree[T]): T.summaryType = tree.root.summary
+func extent*[T](tree: SumTree[T], D: typedesc): D =
   result = D.default
   result.addSummary(tree.root.get.mSummary)
 
-template childSummaries*[T: Item; C: static int](node: Node[T, C]): untyped =
+template childSummaries*[T](node: Node[T]): untyped =
   node.mSummaries.toOpenArray
 
-template childTrees*[T: Item; C: static int](node: Node[T, C]): untyped =
+template childTrees*[T](node: Node[T]): untyped =
   node.mChildren.toOpenArray
 
-template childItems*[T: Item; C: static int](node: Node[T, C]): untyped =
+template childItems*[T](node: Node[T]): untyped =
   node.mItemArray.toOpenArray
 
-func isUnderflowing*[T; C: static int](node: Node[T, C]): bool =
+func isUnderflowing*[T](node: Node[T]): bool =
   case node.kind
   of Internal:
-    node.mChildren.len < C div 2
+    node.mChildren.len < treeBase div 2
   of Leaf:
-    node.mItemArray.len < C div 2
+    node.mItemArray.len < treeBase div 2
 
-func toTree*[T: Item; C: static int](node: sink ArcNode[T, C]): SumTree[T, C] =
-  SumTree[T, C](root: node)
+func toTree*[T](node: sink ArcNode[T]): SumTree[T] =
+  SumTree[T](root: node)
 
-func isEmpty*[T: Item; C: static int](node: ArcNode[T, C]): bool =
+func isEmpty*[T](node: ArcNode[T]): bool =
   case node.get.kind
   of Internal:
     false
   of Leaf:
     node.get.mItemArray.len == 0
 
-func newLeaf*[T; C: static int](): Node[T, C] =
+func newLeaf*[T](): Node[T] =
   type Summary = T.summaryType
-  Node[T, C](kind: Leaf, mSummary: Summary.default)
+  Node[T](kind: Leaf, mSummary: Summary.default)
 
-proc clone*[T; C: static int](a {.byref.}: Node[T, C]): Node[T, C] =
+proc clone*[T](a {.byref.}: Node[T]): Node[T] =
   when debugNodeLifecycle:
     echo indent(&"Node.clone {a}", recursion)
 
-  result = Node[T, C](kind: a.kind)
+  result = Node[T](kind: a.kind)
   result.mSummary = a.mSummary.clone()
   result.mSummaries = a.mSummaries.clone()
   case a.kind
@@ -354,45 +370,44 @@ proc clone*[T; C: static int](a {.byref.}: Node[T, C]): Node[T, C] =
   of Leaf:
     result.mItemArray = a.mItemArray.clone()
 
-proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]]): SumTree[T, C] =
-  assert C mod 2 == 0
-  Arc.new(newLeaf[T, C]()).toTree
+proc new*[T](_: typedesc[SumTree[T]]): SumTree[T] =
+  Arc.new(newLeaf[T]()).toTree
 
-proc clone*[T; C: static int](a {.byref.}: SumTree[T, C]): SumTree[T, C] =
+proc clone*[T](a {.byref.}: SumTree[T]): SumTree[T] =
   a.root.clone().toTree
 
-proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: sink seq[T]): SumTree[T, C] =
+proc new*[T](_: typedesc[SumTree[T]], items: sink seq[T]): SumTree[T] =
   mixin summary
   mixin `+=`
   mixin addSummary
 
-  var nodes: seq[Node[T, C]]
+  var nodes: seq[Node[T]]
   var i = 0
   while i < items.len:
-    let endIndex = min(i + C, items.len)
-    var subItems: ItemArray[T, C]
+    let endIndex = min(i + treeBase, items.len)
+    var subItems: ItemArray[T]
     subItems.len = endIndex - i
     for k in 0..<subItems.len:
       subItems[k] = items[i + k].move
 
     i = endIndex
 
-    var summaries: SummaryArray[T.summaryType, C] = subItems.mapIt(it.summary)
+    var summaries: SummaryArray[T.summaryType] = subItems.mapIt(it.summary)
     var s: T.summaryType = summaries[0].clone()
     for k in 1..summaries.high:
       s += summaries[k]
 
-    nodes.add Node[T, C](kind: Leaf, mSummary: s, mItemArray: subItems, mSummaries: summaries.move)
+    nodes.add Node[T](kind: Leaf, mSummary: s, mItemArray: subItems, mSummaries: summaries.move)
 
-  var parentNodes: seq[Node[T, C]] = @[]
+  var parentNodes: seq[Node[T]] = @[]
   var height: HeightType = 0
   while nodes.len > 1:
     inc height
-    var currentParentNode = Node[T, C].none
+    var currentParentNode = Node[T].none
     var tempNodes = nodes.move
     for childNode in tempNodes.mitems:
       if currentParentNode.isNone:
-        currentParentNode = some Node[T, C](
+        currentParentNode = some Node[T](
           kind: Internal, mSummary: T.summaryType.default, mHeight: height
         )
 
@@ -401,18 +416,18 @@ proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: sink seq[T]
       currentParentNode.get.mSummaries.add childSummary
       currentParentNode.get.mChildren.add Arc.new(childNode.move)
 
-      if currentParentNode.get.mChildren.len == C:
+      if currentParentNode.get.mChildren.len == treeBase:
         parentNodes.add currentParentNode.get.move
-        currentParentNode = Node[T, C].none
+        currentParentNode = Node[T].none
 
     if currentParentNode.isSome:
       parentNodes.add currentParentNode.get.move
-      currentParentNode = Node[T, C].none
+      currentParentNode = Node[T].none
 
     nodes = parentNodes.move
 
   if nodes.len == 0:
-    result = Arc.new(newLeaf[T, C]()).toTree
+    result = Arc.new(newLeaf[T]()).toTree
   else:
     assert nodes.len == 1
     result = Arc.new(nodes[0].move).toTree
@@ -420,44 +435,43 @@ proc new*[T: Item; C: static int](_: typedesc[SumTree[T, C]], items: sink seq[T]
   # echo indent(result.pretty, recursion)
   # echo "-----------------"
 
-func leftmostLeaf*[T: Item; C: static int](self {.byref.}: ArcNode[T, C]): lent ArcNode[T, C] =
+func leftmostLeaf*[T](self {.byref.}: ArcNode[T]): lent ArcNode[T] =
   case self.get.kind
   of Leaf:
     result = self
   else:
     result = self.get.mChildren[0].leftmostLeaf
 
-func rightmostLeaf*[T: Item; C: static int](self {.byref.}: ArcNode[T, C]): lent ArcNode[T, C] =
+func rightmostLeaf*[T](self {.byref.}: ArcNode[T]): lent ArcNode[T] =
   case self.get.kind
   of Leaf:
     result = self
   else:
     result = self.get.mChildren[self.get.mChildren.high].rightmostLeaf
 
-func first*[T: Item; C: static int](self {.byref.}: ArcNode[T, C]): Option[ptr T] =
+func first*[T](self {.byref.}: ArcNode[T]): Option[ptr T] =
   let leaf {.cursor.} = self.leftmostLeaf
   if leaf.get.mItemArray.len > 0:
     result = leaf.get.mItemArray[0].addr.some
 
-func last*[T: Item; C: static int](self {.byref.}: ArcNode[T, C]): Option[ptr T] =
+func last*[T](self {.byref.}: ArcNode[T]): Option[ptr T] =
   let leaf {.cursor.} = self.rightmostLeaf
   if leaf.get.mItemArray.len > 0:
     result = leaf.get.mItemArray[leaf.get.mItemArray.high].addr.some
 
-func leftmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent ArcNode[T, C] =
+func leftmostLeaf*[T](self {.byref.}: SumTree[T]): lent ArcNode[T] =
   return self.root.leftmostLeaf
 
-func rightmostLeaf*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): lent ArcNode[T, C] =
+func rightmostLeaf*[T](self {.byref.}: SumTree[T]): lent ArcNode[T] =
   return self.root.rightmostLeaf
 
-func first*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): Option[ptr T] =
+func first*[T](self {.byref.}: SumTree[T]): Option[ptr T] =
   self.root.first
 
-func last*[T: Item; C: static int](self {.byref.}: SumTree[T, C]): Option[ptr T] =
+func last*[T](self {.byref.}: SumTree[T]): Option[ptr T] =
   self.root.last
 
-proc updateLastRecursive[T: Item; C: static int](
-    self: var ArcNode[T, C], f: proc(node: var T)): Option[T.summaryType] =
+proc updateLastRecursive[T](self: var ArcNode[T], f: proc(node: var T)): Option[T.summaryType] =
   self.makeUnique()
 
   case self.get.kind
@@ -479,17 +493,14 @@ proc updateLastRecursive[T: Item; C: static int](
     else:
       T.summaryType.none
 
-proc updateLast[T: Item; C: static int](
-    self: var ArcNode[T, C], f: proc(node: var T)) =
+proc updateLast[T](self: var ArcNode[T], f: proc(node: var T)) =
   self.updateLastRecursive(f)
 
-proc updateLast*[T: Item; C: static int](
-    self: var SumTree[T, C], f: proc(node: var T)) =
+proc updateLast*[T](self: var SumTree[T], f: proc(node: var T)) =
   discard self.root.updateLastRecursive(f)
   self.checkInvariants()
 
-proc pushTreeRecursive[T: Item; C: static int](
-    self: var ArcNode[T, C], other: sink ArcNode[T, C]): Option[ArcNode[T, C]] =
+proc pushTreeRecursive[T](self: var ArcNode[T], other: sink ArcNode[T]): Option[ArcNode[T]] =
   mixin addSummary
 
   template debugf(str: static string): untyped =
@@ -505,7 +516,7 @@ proc pushTreeRecursive[T: Item; C: static int](
   debugf"pushTreeRecursive:- tree: {self}, other: {other}"
   debugf"{self.pretty}"
 
-  template node: Node[T, C] = self.getMut
+  template node: Node[T] = self.getMut
   self.makeUnique()
 
   case node.kind
@@ -515,8 +526,8 @@ proc pushTreeRecursive[T: Item; C: static int](
     node.mSummary.addSummary(otherNode.mSummary)
 
     let heightDelta = node.height - otherNode.height
-    var summariesToAppend: SummaryArray[T.summaryType, C]
-    var treesToAppend: ChildArray[T, C]
+    var summariesToAppend: SummaryArray[T.summaryType]
+    var treesToAppend: ChildArray[T]
 
     debugf"height: {node.mHeight}, {otherNode.height}, d: {heightDelta}, {otherNode.isUnderflowing}"
     if heightDelta == 0:
@@ -543,12 +554,12 @@ proc pushTreeRecursive[T: Item; C: static int](
 
     let childCount = node.mChildren.len + treesToAppend.len
     debugf"childCount: {node.mChildren.len}, {treesToAppend.len}, {childCount}"
-    if childCount > C:
+    if childCount > treeBase:
       debugf"over max, split"
-      var leftSummaries: SummaryArray[T.summaryType, C]
-      var rightSummaries: SummaryArray[T.summaryType, C]
-      var leftTrees: ChildArray[T, C]
-      var rightTrees: ChildArray[T, C]
+      var leftSummaries: SummaryArray[T.summaryType]
+      var rightSummaries: SummaryArray[T.summaryType]
+      var leftTrees: ChildArray[T]
+      var rightTrees: ChildArray[T]
 
       let midpoint = (childCount + childCount mod 2) div 2
 
@@ -594,7 +605,7 @@ proc pushTreeRecursive[T: Item; C: static int](
       node.mSummary = node.mSummaries.sum()
       node.mChildren = leftTrees.move
 
-      return some(Arc.new(Node[T, C](
+      return some(Arc.new(Node[T](
         kind: Internal,
         mHeight: node.mHeight,
         mSummary: rightSummaries.sum(),
@@ -606,18 +617,18 @@ proc pushTreeRecursive[T: Item; C: static int](
       node.mSummaries.add summariesToAppend
       node.mChildren.add treesToAppend
       debugf"extend internal {self.pretty}"
-      return ArcNode[T, C].none
+      return ArcNode[T].none
 
   of Leaf:
     debugf"--- leaf"
 
     let otherNode {.cursor.} = other.get
     let childCount = node.mItemArray.len + otherNode.mItemArray.len
-    if childCount > C:
-      var leftSummaries: SummaryArray[T.summaryType, C]
-      var rightSummaries: SummaryArray[T.summaryType, C]
-      var leftItems: ItemArray[T, C]
-      var rightItems: ItemArray[T, C]
+    if childCount > treeBase:
+      var leftSummaries: SummaryArray[T.summaryType]
+      var rightSummaries: SummaryArray[T.summaryType]
+      var leftItems: ItemArray[T]
+      var rightItems: ItemArray[T]
 
       let midpoint = (childCount + childCount mod 2) div 2
       if midpoint == node.mSummaries.len:
@@ -658,7 +669,7 @@ proc pushTreeRecursive[T: Item; C: static int](
       node.mSummaries = leftSummaries
       node.mItemArray = leftItems
 
-      return some(Arc.new(Node[T, C](
+      return some(Arc.new(Node[T](
         kind: Leaf,
         mSummary: rightSummaries.sum(),
         mSummaries: rightSummaries,
@@ -671,8 +682,7 @@ proc pushTreeRecursive[T: Item; C: static int](
       node.mItemArray.add(otherNode.mItemArray.clone())
       node.mSummaries.add(otherNode.mSummaries.clone())
 
-proc fromChildTrees[T: Item; C: static int](
-    _: typedesc[ArcNode[T, C]], left: sink ArcNode[T, C], right: sink ArcNode[T, C]): ArcNode[T, C] =
+proc fromChildTrees[T](_: typedesc[ArcNode[T]], left: sink ArcNode[T], right: sink ArcNode[T]): ArcNode[T] =
   mixin addSummary
 
   when debugAppend:
@@ -683,7 +693,7 @@ proc fromChildTrees[T: Item; C: static int](
 
   let height = left.get.height + 1
 
-  var childSummaries: SummaryArray[T.summaryType, C]
+  var childSummaries: SummaryArray[T.summaryType]
   childSummaries.add(left.get.mSummary.clone())
   childSummaries.add(right.get.mSummary.clone())
 
@@ -691,12 +701,12 @@ proc fromChildTrees[T: Item; C: static int](
   for i in 1..childSummaries.high:
     sum.addSummary(childSummaries[i])
 
-  var childTrees: ChildArray[T, C]
+  var childTrees: ChildArray[T]
   childTrees.add left.move
   childTrees.add right.move
 
   result = Arc.new(
-    Node[T, C](
+    Node[T](
       kind: Internal,
       mHeight: height.HeightType,
       mSummary: sum,
@@ -710,7 +720,7 @@ proc fromChildTrees[T: Item; C: static int](
     echo indent(result.pretty, recursion)
     echo indent("--> fromChildTrees", recursion)
 
-proc append*[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNode[T, C]) =
+proc append*[T](self: var ArcNode[T], other: sink ArcNode[T]) =
   when debugAppend:
     echo indent(&"append {self}, {other}", recursion)
 
@@ -729,34 +739,32 @@ proc append*[T: Item; C: static int](self: var ArcNode[T, C], other: sink ArcNod
     else:
       var splitTree = self.pushTreeRecursive(other.move)
       if splitTree.isSome:
-        self = ArcNode[T, C].fromChildTrees(self.clone(), splitTree.get.move)
+        self = ArcNode[T].fromChildTrees(self.clone(), splitTree.get.move)
 
-proc append*[T: Item; C: static int](self: var SumTree[T, C], other: sink SumTree[T, C]) =
+proc append*[T](self: var SumTree[T], other: sink SumTree[T]) =
   self.root.append(other.root)
   self.checkInvariants()
 
-proc extend*[T: Item; C: static int](self: var SumTree[T, C], values: sink seq[T]) =
-  self.append SumTree[T, C].new(values)
+proc extend*[T](self: var SumTree[T], values: sink seq[T]) =
+  self.append SumTree[T].new(values)
 
-proc add*[T: Item; C: static int](self: var SumTree[T, C], item: sink T) =
+proc add*[T](self: var SumTree[T], item: sink T) =
   let summary = item.summary
-  self.root.append Arc.new(Node[T, C](
+  self.root.append Arc.new(Node[T](
     kind: Leaf,
     mSummary: summary.clone(),
-    mSummaries: [summary].toArray(C),
-    mItemArray: [item.move].toArray(C),
+    mSummaries: [summary].toArray(treeBase),
+    mItemArray: [item.move].toArray(treeBase),
   ))
   self.checkInvariants()
 
-func initCursor*[T: Item; C: static int](
-    self {.byref.}: SumTree[T, C], D: typedesc): Cursor[T, D, C] =
+func initCursor*[T](self {.byref.}: SumTree[T], D: typedesc): Cursor[T, D] =
 
   result.node = self.root
   result.position = D.default
   result.atEnd = self.root.isEmpty
 
-func initCursor*[T: Item; C: static int](
-  self {.byref.}: SumTree[T, C]): Cursor[T, tuple[], C] =
+func initCursor*[T](self {.byref.}: SumTree[T]): Cursor[T, tuple[]] =
 
   result.node = self.root
   result.position = ()
@@ -772,8 +780,7 @@ func reset*(self: var Cursor) =
   self.stack.setLen 0
   self.position = typeof(self.position).default
 
-proc seekInternal[T: Item; D; Target; Aggregate; C: static int](
-    self: var Cursor[T, D, C], target: Target, bias: Bias, aggregate: var Aggregate): bool =
+proc seekInternal[I; D; T; A](self: var Cursor[I, D], target: T, bias: Bias, aggregate: var A): bool =
 
   mixin addSummary
 
@@ -783,7 +790,7 @@ proc seekInternal[T: Item; D; Target; Aggregate; C: static int](
 
   if not self.didSeek:
     self.didSeek = true
-    self.stack.add StackEntry[T, D, C](
+    self.stack.add StackEntry[I, D](
       node: self.node,
       index: 0,
       position: D.default,
@@ -830,7 +837,7 @@ proc seekInternal[T: Item; D; Target; Aggregate; C: static int](
 
             else:
               debugf"behind target, enter child"
-              self.stack.add StackEntry[T, D, C](
+              self.stack.add StackEntry[I, D](
                 node: childTree,
                 index: 0,
                 position: self.position.clone(),
@@ -882,23 +889,20 @@ proc seekInternal[T: Item; D; Target; Aggregate; C: static int](
   # echo &"{target} <> {endPosition} -> {target.cmp(endPosition)}"
   return target.cmp(endPosition) == 0
 
-proc seek*[T: Item; D; Target; C: static int](
-    self: var Cursor[T, D, C], target: Target, bias: Bias): bool =
+proc seek*[T; D; Target](self: var Cursor[T, D], target: Target, bias: Bias): bool =
   ## Resets and moves the cursor to the target. Returns true if the target position was found
 
   self.reset()
   var agg = ()
   self.seekInternal(target, bias, agg)
 
-proc seekForward*[T: Item; D; Target; C: static int](
-    self: var Cursor[T, D, C], target: Target, bias: Bias): bool =
+proc seekForward*[T; D; Target](self: var Cursor[T, D], target: Target, bias: Bias): bool =
   ## Moves the cursor to the target. Returns true if the target position was found
 
   var agg = ()
   self.seekInternal(target, bias, agg)
 
-proc summary*[T: Item; D: Dimension; Target; C: static int](
-    self: var Cursor[T, D, C], Output: typedesc[Dimension], `end`: Target, bias: Bias): Output =
+proc summary*[T; D; Target](self: var Cursor[T, D], Output: typedesc, `end`: Target, bias: Bias): Output =
   ## Advances the cursor to `end` and returns the aggregated value of the `Output` dimension
   ## up until, but not including `end`
 
@@ -906,27 +910,24 @@ proc summary*[T: Item; D: Dimension; Target; C: static int](
   discard self.seekInternal(`end`, bias, summary)
   summary.value.move
 
-proc slice*[T: Item; D: Dimension; Target; C: static int](
-    self: var Cursor[T, D, C], `end`: Target, bias: Bias): SumTree[T, C] =
+proc slice*[T; D; Target](self: var Cursor[T, D], `end`: Target, bias: Bias): SumTree[T] =
   ## Returns a new sum tree representing covering the items from the current position
   ## to the given end location. #todo: current node included?
 
-  var slice = SliceSeekAggregate[T, C](
-    node: Arc.new(Node[T, C](kind: Leaf)),
+  var slice = SliceSeekAggregate[T](
+    node: Arc.new(Node[T](kind: Leaf)),
     leafSummary: T.summaryType.default,
   )
   discard self.seekInternal(`end`, bias, slice)
-  result = SumTree[T, C](root: slice.node.move)
+  result = SumTree[T](root: slice.node.move)
   result.checkInvariants()
 
-proc suffix*[T: Item; D: Dimension; C: static int](
-    self: var Cursor[T, D, C]): SumTree[T, C] =
+proc suffix*[T; D](self: var Cursor[T, D]): SumTree[T] =
   ## Returns a new sum tree representing the remainder of the cursors tree from the current position
   ## to the end. #todo: current node included?
   self.slice(End[D](), Right)
 
-proc nextInternal[T: Item; D: Dimension; C: static int](
-    self: var Cursor[T, D, C], filterNode: proc(s: T.summaryType): bool) =
+proc nextInternal[T; D](self: var Cursor[T, D], filterNode: proc(s: T.summaryType): bool) =
   ## Moves the cursor to the next leaf
   mixin addSummary
 
@@ -940,7 +941,7 @@ proc nextInternal[T: Item; D: Dimension; C: static int](
 
   if self.stack.len == 0:
     if not self.atEnd:
-      self.stack.add StackEntry[T, D, C](
+      self.stack.add StackEntry[T, D](
         node: self.node,
         index: 0,
         position: D.default,
@@ -975,7 +976,7 @@ proc nextInternal[T: Item; D: Dimension; C: static int](
 
         if entry.index < node.mChildren.len:
           descend = true
-          self.stack.add StackEntry[T, D, C](
+          self.stack.add StackEntry[T, D](
             node: node.mChildren[entry.index],
             index: 0,
             position: self.position.clone(),
@@ -1008,12 +1009,11 @@ proc nextInternal[T: Item; D: Dimension; C: static int](
 
     self.atEnd = self.stack.len == 0
 
-proc next*[T: Item; D: Dimension; C: static int](self: var Cursor[T, D, C]) =
+proc next*[T; D](self: var Cursor[T, D]) =
   ## Moves the cursor to the next leaf
   self.nextInternal((_: T.summaryType) => true)
 
-proc prevInternal[T: Item; D: Dimension; C: static int](
-    self: var Cursor[T, D, C], filterNode: proc(s: T.summaryType): bool) =
+proc prevInternal[T; D](self: var Cursor[T, D], filterNode: proc(s: T.summaryType): bool) =
   ## Moves the cursor to the prev leaf
   mixin addSummary
 
@@ -1032,7 +1032,7 @@ proc prevInternal[T: Item; D: Dimension; C: static int](
     self.position = D.default
     self.atEnd = self.node.isEmpty
     if not self.node.isEmpty:
-      self.stack.add StackEntry[T, D, C](
+      self.stack.add StackEntry[T, D](
         node: self.node,
         index: self.node.get.mSummaries.len,
         position: D.fromSummary(self.node.summary()),
@@ -1068,7 +1068,7 @@ proc prevInternal[T: Item; D: Dimension; C: static int](
       debugf"internal: {node}"
       if descend:
         let tree {.cursor.} = node.mChildren[entry.index]
-        self.stack.add StackEntry[T, D, C](
+        self.stack.add StackEntry[T, D](
           node: tree,
           index: tree.get.mSummaries.len - 1,
           position: D.default,
@@ -1079,11 +1079,11 @@ proc prevInternal[T: Item; D: Dimension; C: static int](
       if descend:
         break
 
-proc prev*[T: Item; D: Dimension; C: static int](self: var Cursor[T, D, C]) =
+proc prev*[T; D](self: var Cursor[T, D]) =
   ## Moves the cursor to the prev leaf
   self.prevInternal((_: T.summaryType) => true)
 
-proc itemSummary*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T.summaryType] =
+proc itemSummary*[T, D](self: Cursor[T, D]): Option[T.summaryType] =
   ## Returns the summary of the current item, or none if the cursor is past the end
 
   self.assertDidSeek
@@ -1101,11 +1101,11 @@ proc itemSummary*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T.su
 
   return T.summaryType.none
 
-proc startPos*[T: Item; D; C: static int](self: Cursor[T, D, C]): lent D =
+proc startPos*[T; D](self: Cursor[T, D]): lent D =
   ## Returns the aggregated value up until, but not including the current node
   self.position
 
-proc endPos*[T: Item; D; C: static int](self: Cursor[T, D, C]): D =
+proc endPos*[T; D](self: Cursor[T, D]): D =
   ## Returns the aggregated value of the current node
   mixin addSummary
 
@@ -1117,7 +1117,7 @@ proc endPos*[T: Item; D; C: static int](self: Cursor[T, D, C]): D =
   else:
     result = self.position.clone()
 
-proc nextLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr ArcNode[T, C]] =
+proc nextLeaf*[T, D](self: Cursor[T, D]): Option[ptr ArcNode[T]] =
   if self.stack.len > 0:
     assert self.stack[self.stack.high].node.isLeaf
   for i in countdown(self.stack.high - 1, 0):
@@ -1125,7 +1125,7 @@ proc nextLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr Arc
     if entry.index < entry.node.get.mChildren.len - 1:
       return entry.node.get.mChildren[entry.index + 1].leftmostLeaf.addr.some
 
-proc prevLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr ArcNode[T, C]] =
+proc prevLeaf*[T, D](self: Cursor[T, D]): Option[ptr ArcNode[T]] =
   if self.stack.len > 0:
     assert self.stack[self.stack.high].node.isLeaf
   for i in countdown(self.stack.high - 1, 0):
@@ -1133,7 +1133,7 @@ proc prevLeaf*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr Arc
     if entry.index > 0:
       return entry.node.get.mChildren[entry.index - 1].rightmostLeaf.addr.some
 
-proc nextItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+proc nextItem*[T, D](self: Cursor[T, D]): Option[ptr T] =
   if not self.didSeek:
     result = self.node.first
   elif self.stack.len > 0:
@@ -1146,7 +1146,7 @@ proc nextItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] 
   elif not self.atEnd:
     result = self.node.first
 
-proc prevItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+proc prevItem*[T, D](self: Cursor[T, D]): Option[ptr T] =
   self.assertDidSeek
   if self.stack.len > 0:
     let entry {.cursor.} = self.stack[self.stack.high]
@@ -1158,7 +1158,7 @@ proc prevItem*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] 
   elif self.atEnd:
     result = self.node.last
 
-proc item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
+proc item*[T, D](self: Cursor[T, D]): Option[ptr T] =
   # Returns the current item, or none if path the end
 
   self.assertDidSeek
@@ -1176,7 +1176,7 @@ proc item*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[ptr T] =
 
   return (ptr T).none
 
-proc itemClone*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T] =
+proc itemClone*[T, D](self: Cursor[T, D]): Option[T] =
   # Returns the current item, or none if path the end
 
   self.assertDidSeek
@@ -1198,7 +1198,7 @@ proc itemClone*[T: Item, D; C: static int](self: Cursor[T, D, C]): Option[T] =
 proc addSummary*[S](a: var tuple[], summary: S) = discard
 proc fromSummary*[S](_: typedesc[tuple[]], summary: S): tuple[] = ()
 
-proc toSeq*[T: Item; C: static int](self: SumTree[T, C]): seq[T] =
+proc toSeq*[T](self: SumTree[T]): seq[T] =
   # echo self.pretty
   var cursor = self.initCursor tuple[]
   cursor.next()
@@ -1208,7 +1208,7 @@ proc toSeq*[T: Item; C: static int](self: SumTree[T, C]): seq[T] =
     cursor.next()
     i = cursor.item
 
-iterator items*[T: Item; C: static int](self: SumTree[T, C]): lent T =
+iterator items*[T](self: SumTree[T]): lent T =
   var cursor = self.initCursor tuple[]
   cursor.next()
   while cursor.stack.len > 0:

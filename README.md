@@ -27,7 +27,7 @@ type TestSummary* = object # Summary which is stored on each node
 
 # Create a sum tree storing ints, with two children per node, and add the numbers 1, 3, and 5
 # This uses TestSummary implicitly because int.summaryType is TestSummary
-let tree = SumTree[int, 2].new(@[1, 3, 5])
+let tree = SumTree[int].new(@[1, 3, 5])
 
 echo tree # Arc(_3, #1, Internal(h: 1, (count: 3, max: 5), children: 2))
 

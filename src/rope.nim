@@ -2,13 +2,17 @@ import std/[unittest, enumerate, strformat, sugar, os]
 import nimsumtree/[sumtree]
 import uni
 
-when defined(testing):
+const ropeChunkBase {.intdefine.} = 0
+when ropeChunkBase > 0:
+  const chunkBase* = ropeChunkBase
+
+elif defined(testing):
   const chunkBase* = 16
   static:
     echo &"Rope: test environment, use chunkBase = {chunkBase}"
 
 else:
-  const chunkBase* = 256
+  const chunkBase* = 128
 
 when chunkBase < 4:
   {.error: "chunkBase must be >= 4 because utf-8 characters can be encoded with " &
@@ -304,6 +308,9 @@ type
 proc `=copy`*(a: var Rope, b: Rope) {.error.}
 proc `=dup`*(a: Rope): Rope {.error.}
 
+proc clone*(self: Rope): Rope =
+  Rope(tree: self.tree.clone())
+
 proc checkInvariants*(self: Rope) =
   self.tree.checkInvariants()
 
@@ -384,7 +391,7 @@ proc new*(_: typedesc[Rope], value: string = ""): Rope =
 proc toRope*(value: string): Rope =
   Rope.new(value)
 
-proc `$`*(r: Rope): string =
+func `$`*(r: Rope): string =
   for chunk in r.tree:
     result.add chunk.data.toOpenArray.join("")
 
@@ -504,7 +511,7 @@ proc seekForward*(self: var RopeCursor, target: int) =
   self.offset = target
 
 proc slice*(self: var RopeCursor, target: int): Rope =
-  assert target >= self.offset
+  assert target >= self.offset, &"Can't slice before current offset: {target} before {self.offset}"
 
   result = Rope.new()
   let startChunk = self.chunks.item
@@ -547,5 +554,5 @@ proc summary*(self: var RopeCursor, D: typedesc, target: int): D =
 proc suffix*(self: var RopeCursor): Rope =
   self.slice(self.rope.tree.extent(int))
 
-proc offset*(self: RopeCursor): int =
+func offset*(self: RopeCursor): int =
   self.offset

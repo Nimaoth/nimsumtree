@@ -1,4 +1,4 @@
-import std/[unittest, enumerate, strformat, sugar, os]
+import std/[strformat, os]
 import nimsumtree/[sumtree]
 import uni
 

@@ -1,4 +1,4 @@
-import "../nimsumtree/sumtree"
+import nimsumtree/sumtree
 
 type Count* = distinct int
 type Max* = distinct int

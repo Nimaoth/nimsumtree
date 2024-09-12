@@ -155,7 +155,6 @@ func find*[T](arr: openArray[T], val: T, start: int = 0): int =
       return i
 
 iterator lineRanges*(arr: openArray[char]): tuple[line: int, slice: Slice[int]] =
-  var slice: Slice[int]
   var index = arr.find('\n')
   if index == -1:
     yield (0, 0..arr.high)

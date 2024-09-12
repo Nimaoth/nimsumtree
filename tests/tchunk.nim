@@ -1,5 +1,5 @@
 
-import std/[unittest, enumerate, strformat, sugar, unicode, os]
+import std/[unittest, unicode, os]
 import nimsumtree/[sumtree]
 import rope
 

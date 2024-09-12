@@ -1,4 +1,4 @@
-import std/[unittest, enumerate, strformat, sugar, unicode, os]
+import std/[unittest, unicode]
 import nimsumtree/[sumtree]
 import rope
 

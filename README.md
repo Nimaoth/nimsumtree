@@ -52,7 +52,7 @@ echo c.endPos  # (2, 3): (Count, Max)
 
 ### Rope
 ```nim
-import rope
+import nimsumtree/rope
 # Note tha $ for rope is slow and should not be used regularly, this is only for demonstration
 var a = Rope.new("Hello world!")
 check $a == "Hello world!"
@@ -65,7 +65,7 @@ check $b == "you!"
 
 ### Rope
 ```nim
-import buffer, rope
+import nimsumtree/[buffer, rope]
 const initialContent = "Hello world!"
 
 # doc1 and doc2 could be on separate computers

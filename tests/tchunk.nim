@@ -1,7 +1,6 @@
 
 import std/[unittest, unicode, os]
-import nimsumtree/[sumtree]
-import rope
+import nimsumtree/[sumtree, rope]
 
 # 🚻 ä
 # _äb🚻\äb🚻

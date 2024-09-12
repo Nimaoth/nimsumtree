@@ -1,6 +1,5 @@
 import std/[unittest, unicode]
-import nimsumtree/[sumtree]
-import rope
+import nimsumtree/[sumtree, rope]
 
 test "Empty":
   check $Rope.new() == ""

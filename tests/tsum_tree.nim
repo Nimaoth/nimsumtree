@@ -1,6 +1,6 @@
 import std/[unittest, enumerate, strformat, sugar]
 import nimsumtree/sumtree
-import test/test_summary
+import test_summary
 
 const debugIteration {.used.} = 17
 

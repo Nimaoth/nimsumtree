@@ -1,6 +1,6 @@
 import std/[strutils, sequtils, strformat, unittest, random, math, sets, monotimes]
 
-import buffer, rope, clock
+import nimsumtree/[buffer, rope, clock]
 
 var debugFuzz = false
 var logTimes = false

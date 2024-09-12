@@ -1,5 +1,5 @@
 import std/[strutils, sequtils, strformat, random, math, monotimes]
-import clock, buffer
+import nimsumtree/[clock, buffer]
 
 when isMainModule:
   var doc1: Buffer

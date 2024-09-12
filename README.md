@@ -1,10 +1,10 @@
 # nimsumtree
 
 This library provides three things:
-- A generic threadsafe [sumtree](scr/nimsumtree/sumtree.nim), tree data structure similar to a B-tree, but each node stores user defined summaries of it's children.
+- A generic threadsafe [sumtree](src/nimsumtree/sumtree.nim), tree data structure similar to a B-tree, but each node stores user defined summaries of it's children.
   Trees are immutable and it uses atomic RC so that trees can be shared across threads, but if only one reference to a node exists it will be mutated instead.
-- A [rope](src/rope.nim) based on the sumtrees, for storing text and allowing efficient editing of large strings. Intended for e.g. text editors.
-- A [CRDT](https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type) [text buffer](src/buffer.nim), based on the rope and sumtree, for allowing collaborative editing of a text buffer.
+- A [rope](src/nimsumtree/rope.nim) based on the sumtrees, for storing text and allowing efficient editing of large strings. Intended for e.g. text editors.
+- A [CRDT](https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type) [text buffer](src/nimsumtree/buffer.nim), based on the rope and sumtree, for allowing collaborative editing of a text buffer.
 
 The implementation is inspired by [Zed](https://github.com/zed-industries/zed)
 
@@ -55,12 +55,12 @@ echo c.endPos  # (2, 3): (Count, Max)
 import nimsumtree/rope
 # Note tha $ for rope is slow and should not be used regularly, this is only for demonstration
 var a = Rope.new("Hello world!")
-check $a == "Hello world!"
+assert $a == "Hello world!"
 a.replace((6, 11), "you")
-check $a == "Hello you!"
+assert $a == "Hello you!"
 
 let b: Rope = a.slice(6, 10)
-check $b == "you!"
+assert $b == "you!"
 ```
 
 ### Rope

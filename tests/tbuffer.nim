@@ -88,8 +88,7 @@ suite "tests":
     check doc1.contentString == doc2.contentString
     check doc1.items == doc2.items
 
-
-  test "uiae":
+  test "Replace overlapping":
     const initialContent = "Hello world!"
     var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
     var doc2: Buffer = initBuffer(1.ReplicaId, initialContent)
@@ -480,3 +479,33 @@ suite "tests":
       check doc1.contentString == "a12c34e56"
       check doc2.contentString == "a12c34e56"
       check doc3.contentString == "a12c34e56"
+
+  test "multi cursor":
+    const initialContent = "foo(a, b)"
+    var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
+    var doc2: Buffer = initBuffer(1.ReplicaId, initialContent)
+
+    let ops1 = doc1.edit([(4..<4, "["), (5..<5, "]"), (7..<7, "["), (8..<8, "]")])
+
+    check $doc1.visibleText == "foo([a], [b])"
+    check $doc2.visibleText == "foo(a, b)"
+
+    doc2.applyRemote(@[ops1])
+
+    check $doc1.visibleText == "foo([a], [b])"
+    check $doc2.visibleText == "foo([a], [b])"
+
+  test "multi cursor reverse":
+    const initialContent = "foo(a, b)"
+    var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
+    var doc2: Buffer = initBuffer(1.ReplicaId, initialContent)
+
+    let ops1 = doc1.edit([(7..<7, "["), (8..<8, "]"), (4..<4, "["), (5..<5, "]")])
+
+    check $doc1.visibleText == "foo([a], [b])"
+    check $doc2.visibleText == "foo(a, b)"
+
+    doc2.applyRemote(@[ops1])
+
+    check $doc1.visibleText == "foo([a], [b])"
+    check $doc2.visibleText == "foo([a], [b])"

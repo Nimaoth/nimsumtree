@@ -482,7 +482,7 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
 
         let fragmentEnd = oldFragments.endPos(()).visible
 
-        if edit.range.a < ropeBuilder.newVisible.bytes:
+        if edit.range.a < fragmentStart:
           # Trying to insert out of order, commit current edits by breaking inner loop
           break innerLoop
 

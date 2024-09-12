@@ -1,47 +1,14 @@
-import std/[strutils, sequtils, strformat, unittest, random, math, sets, monotimes]
-
-import "../clock.nim"
-
-when defined(iter1):
-  static:
-    echo "Testing iteration 1"
-  include "../iter1.nim"
-  proc clone(doc: var Document): Document = doc
-
-elif defined(iter2):
-  static:
-    echo "Testing iteration 2"
-  include "../iter2.nim"
-  proc clone(doc: var Document): Document = doc
-
-elif defined(iter3):
-  static:
-    echo "Testing iteration 3"
-  include "../iter3.nim"
-  proc clone(doc: var Document): Document = doc
-
-elif defined(iter4):
-  static:
-    echo "Testing iteration 4"
-  include "../iter4.nim"
-
-else:
-  static:
-    echo "Testing main implementation"
-  import "../main.nim"
+import std/[strutils, sequtils, strformat, random, math, monotimes]
+import clock, buffer
 
 when isMainModule:
-  var doc1: Document
-  var doc2: Document
+  var doc1: Buffer
+  var doc2: Buffer
   var ops1 = newSeq[Operation]()
   var ops2 = newSeq[Operation]()
 
-  proc initDocs(initialText: string) =
-    when defined(iter1) or defined(iter2) or defined(iter3):
-      doc1 = initDocument(0.ReplicaId)
-      discard doc1.insertText(0, initialText)
-    else:
-      doc1 = initDocument(0.ReplicaId, initialText)
+  proc initBuffers(initialText: string) =
+    doc1 = initBuffer(0.ReplicaId, initialText)
     doc2 = doc1.clone()
     doc2.replicaId = 1.ReplicaId
     doc2.timestamp = initLamport(1.ReplicaId)
@@ -76,7 +43,7 @@ when isMainModule:
     ops2.add doc2.deleteRange(r)
 
   proc fuzz(initialText: string, seed: int, cdf: array[3, int], iterations: int, maxDelete: int = int.high) =
-    initDocs(initialText)
+    initBuffers(initialText)
     randomize(seed)
     type Op = enum
       Insert
@@ -121,7 +88,7 @@ when isMainModule:
 
     let elapsed = (getMonoTime() - startTime).ms
     # echo &"Fuzz '{initialText}', seed {seed}, cdf {cdf}, iterations: {iterations}, took: {elapsed/1000} ms, {elapsed/iterations.float} per iteration"
-    echo &"{elapsed/1000}"
+    echo &"Initial len: {initialText.len}, iterations: {iterations}, elapsed: {elapsed/1000} s, iteration time: {elapsed / iterations.float} ms"
 
   fuzz("hello", 123, [30, 70, 1], 1000)
   fuzz("hello", 123, [30, 70, 10], 1000)

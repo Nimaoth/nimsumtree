@@ -115,3 +115,12 @@ test "Rope.addFront":
   check $a == "ijklmnopqdefghabc"
   a.addFront("rstuvwxyz")
   check $a == "rstuvwxyzijklmnopqdefghabc"
+
+test "Basic replace and slice":
+  var a = Rope.new("Hello world!")
+  check $a == "Hello world!"
+  a.replace((6, 11), "you")
+  check $a == "Hello you!"
+
+  let b: Rope = a.slice(6, 10)
+  check $b == "you!"

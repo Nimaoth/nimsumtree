@@ -1,8 +1,11 @@
 # Package
 
-version       = "0.1.0"
+when defined(nimsuggest):
+  import system/nimscript
+
+version       = "0.2.0"
 author        = "Nimaoth"
-description   = "Sum trees for Nim"
+description   = "Sum trees/ropes/text crdt for Nim"
 license       = "MIT"
 srcDir        = "src"
 

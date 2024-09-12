@@ -1,20 +1,19 @@
 # nimsumtree
 
-_Still in progress, some things are still missing._
+This library provides three things:
+- A generic threadsafe [sumtree](scr/nimsumtree/sumtree.nim), tree data structure similar to a B-tree, but each node stores user defined summaries of it's children.
+  Trees are immutable and it uses atomic RC so that trees can be shared across threads, but if only one reference to a node exists it will be mutated instead.
+- A [rope](src/rope.nim) based on the sumtrees, for storing text and allowing efficient editing of large strings. Intended for e.g. text editors.
+- A [CRDT](https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type) [text buffer](src/buffer.nim), based on the rope and sumtree, for allowing collaborative editing of a text buffer.
 
-This library provides a tree data structure similar to a B-tree,
-but each node stores user defined summaries of it's children.
-
-Trees are immutable and it uses atomic RC so that trees can be shared across threads,
-but if only one reference to a node exists it will be mutated instead.
-
-It also provides a rope based on the sum tree, which is suitable for e.g. representing file contents in text editors.
-
-The implementation is inspired by sum trees in [Zed](https://github.com/zed-industries/zed)
+The implementation is inspired by [Zed](https://github.com/zed-industries/zed)
 
 ## Examples
 
+### Sumtree
 ```nim
+import nimsumtree/sumtree
+
 type Count* = distinct int
 type Max* = distinct int
 
@@ -49,4 +48,40 @@ assert c.seekForward(1.Count, Right)
 echo c.itemSummary  # some((count: 1, max: 3))
 echo c.startPos  # (1, 1): (Count, Max)
 echo c.endPos  # (2, 3): (Count, Max)
+```
+
+### Rope
+```nim
+import rope
+# Note tha $ for rope is slow and should not be used regularly, this is only for demonstration
+var a = Rope.new("Hello world!")
+check $a == "Hello world!"
+a.replace((6, 11), "you")
+check $a == "Hello you!"
+
+let b: Rope = a.slice(6, 10)
+check $b == "you!"
+```
+
+### Rope
+```nim
+import buffer, rope
+const initialContent = "Hello world!"
+
+# doc1 and doc2 could be on separate computers
+var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
+var doc2: Buffer = initBuffer(1.ReplicaId, initialContent)
+
+let ops1 = doc1.edit([(6..<12, "?")])
+let ops2 = doc2.edit([(6..<11, "you")])
+
+assert $doc1.visibleText == "Hello ?"
+assert $doc2.visibleText == "Hello you!"
+
+doc1.applyRemote(@[ops2])
+doc2.applyRemote(@[ops1])
+
+assert $doc1.visibleText == "Hello you?"
+assert $doc2.visibleText == "Hello you?"
+
 ```

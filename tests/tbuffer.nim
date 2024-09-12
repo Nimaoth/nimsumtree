@@ -1,11 +1,9 @@
 import std/[strutils, sequtils, strformat, unittest, random, math, sets, monotimes]
 
-import clock
+import buffer, rope, clock
 
 var debugFuzz = false
 var logTimes = false
-
-import buffer
 
 template prettyIt(self: untyped): untyped =
   (("\n" & self.mapIt($it).join("\n")).indent(1, "  "))
@@ -89,6 +87,24 @@ suite "tests":
     sync()
     check doc1.contentString == doc2.contentString
     check doc1.items == doc2.items
+
+
+  test "uiae":
+    const initialContent = "Hello world!"
+    var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
+    var doc2: Buffer = initBuffer(1.ReplicaId, initialContent)
+
+    let ops1 = doc1.edit([(6..<12, "?")])
+    let ops2 = doc2.edit([(6..<11, "you")])
+
+    check $doc1.visibleText == "Hello ?"
+    check $doc2.visibleText == "Hello you!"
+
+    doc1.applyRemote(@[ops2])
+    doc2.applyRemote(@[ops1])
+
+    check $doc1.visibleText == "Hello you?"
+    check $doc2.visibleText == "Hello you?"
 
   test "insert in 1 at start":
     insert1(0, "Yo, ")

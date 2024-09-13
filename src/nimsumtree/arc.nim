@@ -67,14 +67,15 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
 
   deallocShared(a.data)
 
-proc `$`*[T](arc {.byref.}: Arc[T]): string =
+func `$`*[T](arc {.byref.}: Arc[T]): string =
   when debugCustomArcId or debugCustomArc:
     "Arc(_" & $arc.data[].id & ", #" &  $arc.data[].count.load & ", " & $arc.data[].value & ")"
   else:
     "Arc(#" & $arc.data[].count.load & ", " & $arc.data[].value & ")"
 
-proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
-  result.data = cast[ptr ArcData[T]](allocShared0(sizeof(ArcData[T])))
+func new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
+  {.cast(noSideEffect).}: # todo: Verify if this is safe
+    result.data = cast[ptr ArcData[T]](allocShared0(sizeof(ArcData[T])))
   result.data[].count.store(1.uint64)
   result.data[].value = default.move
 
@@ -86,8 +87,9 @@ proc new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
   when debugCustomArcLeaks:
     inc activeArcs
 
-proc new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
-  result.data = cast[ptr ArcData[T]](allocShared0(sizeof(ArcData[T])))
+func new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
+  {.cast(noSideEffect).}: # todo: Verify if this is safe
+    result.data = cast[ptr ArcData[T]](allocShared0(sizeof(ArcData[T])))
   result.data[].count.store(1.uint64)
   result.data[].value = default.move
 
@@ -99,10 +101,10 @@ proc new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
   when debugCustomArcLeaks:
     inc activeArcs
 
-proc new*[T](A: typedesc[Arc[T]]): Arc[T] = A.new(T.default)
-proc new*(A: typedesc[Arc], T: typedesc): Arc[T] = A.new(T.default)
+func new*[T](A: typedesc[Arc[T]]): Arc[T] = A.new(T.default)
+func new*(A: typedesc[Arc], T: typedesc): Arc[T] = A.new(T.default)
 
-proc clone*[T](a {.byref.}: Arc[T]): Arc[T] =
+func clone*[T](a {.byref.}: Arc[T]): Arc[T] =
   assert a.data != nil
 
   let oldSize = a.data[].count.fetchAdd(1, moRelaxed)
@@ -139,7 +141,7 @@ func get*[T](a: Arc[T]): lent T =
   a.data[].value
 
 
-proc makeUnique*[T](a: var Arc[T]) =
+func makeUnique*[T](a: var Arc[T]) =
   assert a.data != nil
 
   var expected = 1.uint64

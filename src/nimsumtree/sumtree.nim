@@ -353,7 +353,7 @@ func newLeaf*[I](): Node[I] =
   type Summary = I.summaryType
   Node[I](kind: Leaf, mSummary: Summary.default)
 
-proc clone*[I](a {.byref.}: Node[I]): Node[I] =
+func clone*[I](a {.byref.}: Node[I]): Node[I] =
   # when debugNodeLifecycle:
   #   echo indent(&"Node.clone {a}", recursion)
 

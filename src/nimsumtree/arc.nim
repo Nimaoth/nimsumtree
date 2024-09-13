@@ -3,9 +3,9 @@ import clone
 
 export clone
 
-const debugCustomArcId {.booldefine.} = true
+const debugCustomArcId {.booldefine.} = false
 const debugCustomArc {.booldefine.} = false
-const debugCustomArcLeaks {.booldefine.} = true
+const debugCustomArcLeaks {.booldefine.} = false
 
 when debugCustomArc:
   import strformat
@@ -16,8 +16,9 @@ when debugCustomArc or debugCustomArcId:
 when debugCustomArcLeaks:
   var activeArcs = 0
 
-proc assertNoLeaks*() =
-  assert activeArcs == 0
+proc assertNoLeaks*() {.noSideEffect.} =
+  when debugCustomArcLeaks:
+    assert activeArcs == 0
 
 type
   ArcData[T] {.acyclic.} = object

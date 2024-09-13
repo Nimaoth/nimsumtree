@@ -98,20 +98,20 @@ proc runeSize*(s: openArray[char], offset: Natural): Natural =
   if s[offset] <= chr(127):
     result = 1
   else:
-    var L = 1
+    var L = 0
     var R = 1
-    while offset - L >= 0 and uint(s[offset - L]) shr 6 == 0b10: inc(L)
-    while offset + L <= s.high and uint(s[offset + L]) shr 6 == 0b10: inc(L)
-    result = R - L
+    while offset - L > 0 and uint(s[offset - L]) shr 6 == 0b10: inc(L)
+    while offset + R <= s.high and uint(s[offset + R]) shr 6 == 0b10: inc(R)
+    result = R + L
 
 proc runeStart*(s: openArray[char], offset: Natural): Natural =
-  if offset == s.len:
+  if offset >= s.len:
     return offset
-  if s[offset] <= chr(127):
+  elif s[offset] <= chr(127) or uint(s[offset]) shr 6 == 0b11:
     result = offset
   else:
     var L = 0
-    while offset - L >= 0 and uint(s[offset - L]) shr 6 == 0b10: inc(L)
+    while offset - L > 0 and uint(s[offset - L]) shr 6 == 0b10: inc(L)
     result = offset - L
 
 proc isCharBoundary*(s: openArray[char], offset: Natural): bool =

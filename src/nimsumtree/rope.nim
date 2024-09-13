@@ -1,4 +1,4 @@
-import std/[strformat, os]
+import std/[strformat, os, strformat]
 import nimsumtree/[sumtree]
 import uni
 
@@ -17,6 +17,8 @@ else:
 when chunkBase < 4:
   {.error: "chunkBase must be >= 4 because utf-8 characters can be encoded with " &
     "up to four bytes".}
+
+const chunkBaseHalf* = chunkBase div 2
 
 type
   Count* = distinct int
@@ -45,25 +47,25 @@ proc `=dup`*(a: Chunk): Chunk {.error.}
 
 func `$`*(a: Count): string {.borrow.}
 func `+=`*(a: var Count, b: Count) {.borrow.}
-proc `+`*(a: Count, b: Count): Count {.borrow.}
-proc `-`*(a: Count, b: Count): Count {.borrow.}
-proc `==`*(a: Count, b: Count): bool {.borrow.}
-proc `<`*(a: Count, b: Count): bool {.borrow.}
-proc `<=`*(a: Count, b: Count): bool {.borrow.}
+func `+`*(a: Count, b: Count): Count {.borrow.}
+func `-`*(a: Count, b: Count): Count {.borrow.}
+func `==`*(a: Count, b: Count): bool {.borrow.}
+func `<`*(a: Count, b: Count): bool {.borrow.}
+func `<=`*(a: Count, b: Count): bool {.borrow.}
 
 func `$`*(a: Count32): string {.borrow.}
 func `+=`*(a: var Count32, b: Count32) {.borrow.}
-proc `+`*(a: Count32, b: Count32): Count32 {.borrow.}
-proc `==`*(a: Count32, b: Count32): bool {.borrow.}
-proc `<`*(a: Count32, b: Count32): bool {.borrow.}
-proc `<=`*(a: Count32, b: Count32): bool {.borrow.}
+func `+`*(a: Count32, b: Count32): Count32 {.borrow.}
+func `==`*(a: Count32, b: Count32): bool {.borrow.}
+func `<`*(a: Count32, b: Count32): bool {.borrow.}
+func `<=`*(a: Count32, b: Count32): bool {.borrow.}
 
-proc `$`*(r: Chunk): string =
+func `$`*(r: Chunk): string =
   result = "["
   result.add r.data.toOpenArray.join("")
   result.add "]"
 
-proc init*(_: typedesc[Point], row: int, column: int): Point =
+func init*(_: typedesc[Point], row: int, column: int): Point =
   Point(row: row.uint32, column: column.uint32)
 
 func clone*(a: TextSummary): TextSummary = a
@@ -162,11 +164,11 @@ func fromSummary*[C](_: typedesc[TextSummary], a: TextSummary, cx: C): TextSumma
 
 ################### Chunk ###################
 
-proc clone*(a: Chunk): Chunk = Chunk(data: a.data)
-proc toChunk*(text: string): Chunk = Chunk(data: text.toOpenArray(0, text.high).toArray(chunkBase))
-proc toChunk*(text: openArray[char]): Chunk = Chunk(data: text.toArray(chunkBase))
+func clone*(a: Chunk): Chunk = Chunk(data: a.data)
+func toChunk*(text: string): Chunk = Chunk(data: text.toOpenArray(0, text.high).toArray(chunkBase))
+func toChunk*(text: openArray[char]): Chunk = Chunk(data: text.toArray(chunkBase))
 
-proc init*(_: typedesc[TextSummary], x: openArray[char]): TextSummary =
+func init*(_: typedesc[TextSummary], x: openArray[char]): TextSummary =
   result.bytes = x.len
 
   for r in x.runes:
@@ -186,13 +188,13 @@ proc init*(_: typedesc[TextSummary], x: openArray[char]): TextSummary =
       result.longestRow = result.lines.row
       result.longestRowChars = result.lastLineChars
 
-proc init*(_: typedesc[TextSummary], x: string): TextSummary =
+func init*(_: typedesc[TextSummary], x: string): TextSummary =
   TextSummary.init(x.toOpenArray(0, x.high))
 
-proc summary*(x: Chunk): TextSummary =
+func summary*(x: Chunk): TextSummary =
   TextSummary.init(x.data.toOpenArray)
 
-proc offsetToCount*(self: Chunk, target: int): Count =
+func offsetToCount*(self: Chunk, target: int): Count =
   var offset = 0
   for r in self.data.toOpenArray.runes:
     if offset >= target:
@@ -200,7 +202,7 @@ proc offsetToCount*(self: Chunk, target: int): Count =
     offset += r.size
     result += 1.Count
 
-proc countToOffset*(self: Chunk, target: Count): int =
+func countToOffset*(self: Chunk, target: Count): int =
   var offset = 0.Count
   for r in self.data.toOpenArray.runes:
     if offset >= target:
@@ -208,7 +210,7 @@ proc countToOffset*(self: Chunk, target: Count): int =
     result += r.size
     offset += 1.Count
 
-proc offsetToPoint*(self: Chunk, target: int): Point =
+func offsetToPoint*(self: Chunk, target: int): Point =
   var offset = 0
   for r in self.data.toOpenArray.runes:
     if offset >= target:
@@ -220,7 +222,7 @@ proc offsetToPoint*(self: Chunk, target: int): Point =
       result.column += r.size.uint32
     offset += r.size
 
-proc countToPoint*(self: Chunk, target: Count): Point =
+func countToPoint*(self: Chunk, target: Count): Point =
   var offset = 0.Count
   for r in self.data.toOpenArray.runes:
     if offset >= target:
@@ -232,7 +234,7 @@ proc countToPoint*(self: Chunk, target: Count): Point =
       result.column += r.size.uint32
     offset += 1.Count
 
-proc pointToOffset*(self: Chunk, target: Point): int =
+func pointToOffset*(self: Chunk, target: Point, debug = false): int =
   var point = Point()
   for r in self.data.toOpenArray.runes:
     if point >= target:
@@ -251,7 +253,7 @@ proc pointToOffset*(self: Chunk, target: Point): int =
 
     result += r.size
 
-proc pointToCount*(self: Chunk, target: Point): Count =
+func pointToCount*(self: Chunk, target: Point): Count =
   var point = Point()
   for r in self.data.toOpenArray.runes:
     if point >= target:
@@ -270,7 +272,25 @@ proc pointToCount*(self: Chunk, target: Point): Count =
 
     inc result
 
-proc clipPoint*(self: Chunk, target: Point, bias: Bias): Point =
+func toOffset*(self: Chunk, target: int): int =
+  target
+
+func toOffset*(self: Chunk, target: Count): int =
+  self.countToOffset(target)
+
+func toOffset*(self: Chunk, target: Point): int =
+  self.pointToOffset(target)
+
+func offsetTo*(self: Chunk, target: int, D: typedesc[int]): int =
+  target
+
+func offsetTo*(self: Chunk, target: int, D: typedesc[Point]): Point =
+  self.offsetToPoint(target)
+
+func offsetTo*(self: Chunk, target: int, D: typedesc[Count]): Count =
+  self.offsetToCount(target)
+
+func clipPoint*(self: Chunk, target: Point, bias: Bias): Point =
   for (row, slice) in self.data.toOpenArray.lineRanges:
     if target.row.int != row:
       continue
@@ -301,6 +321,11 @@ type
   Rope* = object
     tree*: SumTree[Chunk]
 
+  RopeCursorT*[D] = object
+    rope: ptr Rope
+    chunks: Cursor[Chunk, (D, int)]
+    position: D
+
   RopeCursor* = object
     rope: ptr Rope
     chunks: Cursor[Chunk, int]
@@ -309,10 +334,10 @@ type
 proc `=copy`*(a: var Rope, b: Rope) {.error.}
 proc `=dup`*(a: Rope): Rope {.error.}
 
-proc clone*(self: Rope): Rope =
+func clone*(self: Rope): Rope =
   Rope(tree: self.tree.clone())
 
-proc checkInvariants*(self: Rope) =
+func checkInvariants*(self: Rope) =
   self.tree.checkInvariants()
 
 func bytes*(self: Rope): int =
@@ -321,10 +346,13 @@ func bytes*(self: Rope): int =
 func chars*(self: Rope): int =
   return self.tree.summary.len.int
 
-func lines*(self: Rope): Point =
+func endPoint*(self: Rope): Point =
   return self.tree.summary.lines
 
-proc offsetToCount*(self: Rope, target: int): Count =
+func lines*(self: Rope): int =
+  return self.tree.summary.lines.row.int + 1
+
+func offsetToCount*(self: Rope, target: int): Count =
   if target >= self.tree.summary.bytes:
     return self.tree.summary.len
   var cursor = self.tree.initCursor (int, Count)
@@ -332,7 +360,7 @@ proc offsetToCount*(self: Rope, target: int): Count =
   let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].offsetToCount(overshoot)).get(0.Count)
 
-proc offsetToPoint*(self: Rope, target: int): Point =
+func offsetToPoint*(self: Rope, target: int): Point =
   if target >= self.tree.summary.bytes:
     return self.tree.summary.lines
   var cursor = self.tree.initCursor (int, Point)
@@ -340,7 +368,15 @@ proc offsetToPoint*(self: Rope, target: int): Point =
   let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].offsetToPoint(overshoot)).get(Point.default)
 
-proc countToOffset*(self: Rope, target: Count): int =
+func offsetTo*(self: Rope, target: int, D: typedesc): D =
+  if target >= self.tree.summary.bytes:
+    return self.tree.summary.lines
+  var cursor = self.tree.initCursor (int, D)
+  discard cursor.seekForward(target, Left, ())
+  let overshoot = target - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].offsetTo(overshoot, D)).get(D.default)
+
+func countToOffset*(self: Rope, target: Count): int =
   if target >= self.tree.summary.len:
     return self.tree.summary.bytes
   var cursor = self.tree.initCursor (Count, int)
@@ -348,7 +384,7 @@ proc countToOffset*(self: Rope, target: Count): int =
   let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].countToOffset(overshoot)).get(0)
 
-proc countToPoint*(self: Rope, target: Count): Point =
+func countToPoint*(self: Rope, target: Count): Point =
   if target >= self.tree.summary.len:
     return self.tree.summary.lines
   var cursor = self.tree.initCursor (Count, Point)
@@ -356,7 +392,7 @@ proc countToPoint*(self: Rope, target: Count): Point =
   let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].countToPoint(overshoot)).get(Point.default)
 
-proc pointToOffset*(self: Rope, target: Point): int =
+func pointToOffset*(self: Rope, target: Point): int =
   if target >= self.tree.summary.lines:
     return self.tree.summary.bytes
   var cursor = self.tree.initCursor (Point, int)
@@ -364,7 +400,7 @@ proc pointToOffset*(self: Rope, target: Point): int =
   let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].pointToOffset(overshoot)).get(0)
 
-proc pointToCount*(self: Rope, target: Point): Count =
+func pointToCount*(self: Rope, target: Point): Count =
   if target >= self.tree.summary.lines:
     return self.tree.summary.len
   var cursor = self.tree.initCursor (Point, Count)
@@ -372,7 +408,33 @@ proc pointToCount*(self: Rope, target: Point): Count =
   let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].pointToCount(overshoot)).get(0.Count)
 
-proc new*(_: typedesc[Rope], value: openArray[char]): Rope =
+func toOffset*(self: Rope, target: Count): int =
+  self.countToOffset(target)
+
+func toOffset*(self: Rope, target: Point): int =
+  self.pointToOffset(target)
+
+func toOffsetT*[D](self: Rope, target: D): int =
+  var endPos: D = D.default
+  endPos.addSummary(self.tree.summary())
+  if target >= endPos:
+    return self.tree.summary.len
+  var cursor = self.tree.initCursor (D, int)
+  discard cursor.seekForward(target, Left, ())
+  let overshoot = target - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].toOffset(overshoot)).get(0)
+
+func clipPoint*(self: Rope, target: Point, bias: Bias): Point =
+  var cursor = self.tree.initCursor(Point)
+  discard cursor.seekForward(target, Right, ())
+  let chunk = cursor.item
+  if chunk.isSome:
+    var overshoot = target - cursor.startPos
+    return cursor.startPos + chunk.get[].clipPoint(overshoot, bias)
+
+  return self.endPoint
+
+func new*(_: typedesc[Rope], value: openArray[char]): Rope =
   var chunks = newSeq[Chunk]()
 
   var i = 0
@@ -383,23 +445,26 @@ proc new*(_: typedesc[Rope], value: openArray[char]): Rope =
 
   result.tree = SumTree[Chunk].new(chunks)
 
-proc toRope*(value: openArray[char]): Rope =
+func toRope*(value: openArray[char]): Rope =
   Rope.new(value)
 
-proc new*(_: typedesc[Rope], value: string = ""): Rope =
+func new*(_: typedesc[Rope], value: string = ""): Rope =
   Rope.new(value.toOpenArray(0, value.high))
 
-proc toRope*(value: string): Rope =
+func toRope*(value: string): Rope =
   Rope.new(value)
 
 func `$`*(r: Rope): string =
   for chunk in r.tree.items(()):
     result.add chunk.data.toOpenArray.join("")
 
-proc add*(self: var Chunk, text: openArray[char]) =
+func add*(self: var Chunk, text: openArray[char]) =
   self.data.add text
 
-proc add*(self: var Rope, text: openArray[char]) =
+func saturatingSub(a, b: int): int = max(a - b, 0)
+
+func add*(self: var Rope, text: openArray[char]) =
+  assert text.len >= 0
   if text.len == 0:
     return
 
@@ -408,19 +473,19 @@ proc add*(self: var Rope, text: openArray[char]) =
   template text: untyped = textPtr.toOpenArray(0, textLen - 1)
 
   self.tree.updateLast cx=(), f=proc(chunk: var Chunk) =
-    let splitIndex = if chunk.data.len + textLen <= chunkBase:
+
+    var splitIndex = if chunk.data.len + textLen <= chunkBase:
       textLen
     else:
-      # todo: saturatingSub(chunkBase, chunk.data.len)
-      text.runeStart(min(chunkBase - chunk.data.len, textLen))
+      let index = min(saturatingSub(chunkBaseHalf, chunk.data.len), textLen)
+      text.runeStart(min(index, textLen))
 
     if splitIndex == 0:
       return
 
     chunk.add text[0..<splitIndex]
 
-    if splitIndex < text.len:
-      textPtr = cast[ptr UncheckedArray[char]](text[splitIndex].addr)
+    textPtr = cast[ptr UncheckedArray[char]](textPtr[splitIndex].addr)
     textLen -= splitIndex
 
     assert textLen >= 0
@@ -432,17 +497,19 @@ proc add*(self: var Rope, text: openArray[char]) =
 
   var i = 0
   while i < text.len:
-    let last = min(i + chunkBase, text.len)
+    var last = min(i + chunkBase, text.len)
+    while not text.isCharBoundary(last):
+      dec last
     chunks.add Chunk(data: text[i..<last].toArray(chunkBase))
     i = last
 
   self.tree.extend(chunks, ())
   self.checkInvariants()
 
-proc add*(self: var Rope, text: string) =
+func add*(self: var Rope, text: string) =
   self.add text.toOpenArray(0, text.high)
 
-proc add*(self: var Rope, rope: sink Rope) =
+func add*(self: var Rope, rope: sink Rope) =
   var chunks = rope.tree.initCursor
   chunks.next(())
   let chunk = chunks.item
@@ -456,21 +523,28 @@ proc add*(self: var Rope, rope: sink Rope) =
   self.tree.append(chunks.suffix(()), ())
   self.checkInvariants()
 
-proc addFront*(self: var Rope, text: openArray[char]) =
+func addFront*(self: var Rope, text: openArray[char]) =
   let suffix = self.move
   self = Rope.new(text)
   self.add suffix
   self.checkInvariants()
 
-proc addFront*(self: var Rope, text: string) =
+func addFront*(self: var Rope, text: string) =
   self.addFront text.toOpenArray(0, text.high)
 
-proc cursor*(self {.byref.}: Rope, offset: int = 0): RopeCursor
-proc seekForward*(self: var RopeCursor, target: int)
-proc slice*(self: var RopeCursor, target: int): Rope
-proc suffix*(self: var RopeCursor): Rope
+func cursor*(self {.byref.}: Rope, offset: int = 0): RopeCursor
+func seekForward*(self: var RopeCursor, target: int)
+func slice*(self: var RopeCursor, target: int): Rope
+func suffix*(self: var RopeCursor): Rope
+func cursorT*[D](self {.byref.}: Rope, position: D): RopeCursorT[D]
+func cursorT*(self {.byref.}: Rope, D: typedesc): RopeCursorT[D]
+func seekForward*[D](self: var RopeCursorT[D], target: D)
+func slice*[D](self: var RopeCursorT[D], target: D): Rope
+func suffix*[D](self: var RopeCursorT[D]): Rope
+func atEnd*(self: RopeCursor): bool = self.chunks.atEnd
+func atEnd*[D](self: RopeCursorT[D]): bool = self.chunks.atEnd
 
-proc replace*(self: var Rope, slice: ByteRange, text: openArray[char]) =
+func replace*(self: var Rope, slice: ByteRange, text: openArray[char]) =
   var newRope = Rope.new()
   var cursor = self.cursor()
   newRope.add(cursor.slice(slice.first))
@@ -480,38 +554,134 @@ proc replace*(self: var Rope, slice: ByteRange, text: openArray[char]) =
   self = newRope
   self.checkInvariants()
 
-proc replace*(self: var Rope, slice: ByteRange, text: string) =
+func replace*(self: var Rope, slice: ByteRange, text: string) =
   self.replace(slice, text.toOpenArray(0, text.high))
 
-proc slice*(self: Rope, slice: ByteRange): Rope =
+func slice*(self: Rope, slice: ByteRange): Rope =
   var cursor = self.cursor()
   cursor.seekForward(slice.first)
   result = cursor.slice(slice.last)
   result.checkInvariants()
 
-proc slice*(self: Rope, first, last: int): Rope =
+func slice*(self: Rope, first, last: int): Rope =
   self.slice((first, last))
 
-proc sliceRows*(self: Rope, slice: ByteRange): Rope =
+func sliceRows*(self: Rope, slice: ByteRange): Rope =
   let startOffset = self.pointToOffset(Point.init(slice.first, 0))
   let endOffset = self.pointToOffset(Point.init(slice.last, 0))
   self.slice((startOffset, endOffset))
 
-proc sliceRows*(self: Rope, first, last: int): Rope =
+func sliceRows*(self: Rope, first, last: int): Rope =
   self.sliceRows((first, last))
 
-proc cursor*(self {.byref.}: Rope, offset: int = 0): RopeCursor =
+func validateOffset*(self: Rope, offset: int, bias: Bias, debug = false): int =
+  if offset < 0:
+    return 0
+  if offset >= self.bytes:
+    return self.bytes
+
+  var cursor = self.tree.initCursor(int)
+  discard cursor.seekForward(offset, Left, ())
+  var overshoot = offset - cursor.startPos
+  let chunk = cursor.item
+  if chunk.isSome:
+    case bias
+    of Left:
+      while not chunk.get[].data.toOpenArray.isCharBoundary(overshoot):
+        dec overshoot
+    of Right:
+      while not chunk.get[].data.toOpenArray.isCharBoundary(overshoot):
+        inc overshoot
+
+    assert overshoot >= 0
+    return cursor.startPos + overshoot
+
+  return offset
+
+func cursor*(self {.byref.}: Rope, offset: int = 0): RopeCursor =
   result.rope = self.addr
-  result.chunks = self.tree.initCursor int
+  result.chunks = self.tree.initCursor(int)
   result.offset = offset
   discard result.chunks.seek(offset, Right, ())
 
-proc seekForward*(self: var RopeCursor, target: int) =
+func cursorT*[D](self {.byref.}: Rope, position: D): RopeCursorT[D] =
+  result.rope = self.addr
+  result.chunks = self.tree.initCursor((D, int))
+  result.position = position
+  discard result.chunks.seek(position, Right, ())
+
+func cursorT*(self {.byref.}: Rope, D: typedesc): RopeCursorT[D] =
+  result.rope = self.addr
+  result.chunks = self.tree.initCursor((D, int))
+  result.position = D.default
+
+func seekForward*(self: var RopeCursor, target: int) =
   assert target >= self.offset
   discard self.chunks.seekForward(target, Right, ())
   self.offset = target
 
-proc slice*(self: var RopeCursor, target: int): Rope =
+func seekForward*[D](self: var RopeCursorT[D], target: D) =
+  assert target >= self.position
+  discard self.chunks.seekForward(target, Right, ())
+  self.position = target
+
+func seekNextRune*[D](self: var RopeCursorT[D]) =
+  bind runeSize
+
+  if self.chunks.item.isSome:
+    let chunk = self.chunks.item.get
+    let startPos = self.chunks.startPos[0]
+    var overshoot = chunk[].toOffset(self.position - startPos)
+    if overshoot < chunk[].data.len:
+      overshoot += chunk[].data.toOpenArray.runeSize(overshoot)
+
+    let newOffsetRel = chunk[].offsetTo(overshoot, D)
+    self.position = startPos + newOffsetRel
+
+    if overshoot == chunk[].data.len:
+      self.chunks.next(())
+
+func currentRune*(self: RopeCursor): Rune =
+  let item = self.chunks.item
+  let relOffset = self.offset - self.chunks.startPos
+  if item.isSome and relOffset < item.get.data.toOpenArray.len:
+    return item.get.data.toOpenArray.runeAt(relOffset)
+  return 0.Rune
+
+func currentRune*(self: RopeCursorT): Rune =
+  let item = self.chunks.item
+  if item.isSome:
+    let startPos = self.chunks.startPos[0]
+    let relOffset = item.get[].toOffset(self.position - startPos)
+    if relOffset < item.get.data.toOpenArray.len:
+      return item.get.data.toOpenArray.runeAt(relOffset)
+  return 0.Rune
+
+func lineBounds*(self: Rope, line: int): (int, int) =
+  if line >= self.lines:
+    return (self.tree.summary.bytes, self.tree.summary.bytes)
+
+  var cursor = self.tree.initCursor (Point, int)
+
+  discard cursor.seekForward(Point.init(line, 0), Left, ())
+  let firstOvershoot = Point.init(line, 0) - cursor.startPos[0]
+  let firstStartPos = cursor.startPos
+  let firstOffset = cursor.item().mapIt(it[].pointToOffset(firstOvershoot)).get(0)
+  let first = firstStartPos[1] + firstOffset
+
+  discard cursor.seekForward(Point.init(line + 1, 0), Left, ())
+  let lastOvershoot = Point.init(line + 1, 0) - cursor.startPos[0]
+  let lastStartPos = cursor.startPos
+  let lastOffset = cursor.item().mapIt(it[].pointToOffset(lastOvershoot)).get(0)
+  var last = lastStartPos[1] + lastOffset
+
+  if line < self.lines - 1:
+    # byte offset includes the \n, so -1
+    last -= 1
+
+  return (first, max(first, last))
+
+func slice*(self: var RopeCursor, target: int): Rope =
   assert target >= self.offset, &"Can't slice before current offset: {target} before {self.offset}"
 
   result = Rope.new()
@@ -532,7 +702,28 @@ proc slice*(self: var RopeCursor, target: int): Rope =
   self.offset = target
   result.checkInvariants()
 
-proc summary*(self: var RopeCursor, D: typedesc, target: int): D =
+func slice*[D](self: var RopeCursorT[D], target: D): Rope =
+  assert target >= self.position, &"Can't slice before current position: {target} before {self.position}"
+
+  result = Rope.new()
+  let startChunk = self.chunks.item
+  if startChunk.isSome:
+    let startIndex = self.position - self.chunks.startPos[0]
+    let endIndex = min(target, self.chunks.endPos(())[0]) - self.chunks.startPos[0]
+    result.add(startChunk.get[].data.toOpenArray(startIndex, endIndex - 1))
+
+  if target > self.chunks.endPos(())[0]:
+    self.chunks.next(())
+    result.add Rope(tree: self.chunks.slice(target, Right, ()))
+    let endChunk = self.chunks.item
+    if endChunk.isSome:
+      let endIndex = target - self.chunks.startPos[0]
+      result.add(endChunk.get[].data.toOpenArray(0, endIndex - 1))
+
+  self.position = target
+  result.checkInvariants()
+
+func summary*(self: var RopeCursor, D: typedesc, target: int): D =
   assert target >= self.offset
 
   result = D.default
@@ -552,8 +743,54 @@ proc summary*(self: var RopeCursor, D: typedesc, target: int): D =
 
   self.offset = target
 
-proc suffix*(self: var RopeCursor): Rope =
+func summary*[D](self: var RopeCursorT[D], D2: typedesc, target: D): D2 =
+  assert target >= self.position
+
+  result = D2.default
+  let startChunk = self.chunks.item
+  if startChunk.isSome:
+    let startIndex = startChunk.get[].toOffset(self.position - self.chunks.startPos[0])
+    let endIndex = startChunk.get[].toOffset(min(target, self.chunks.endPos(())[0]) - self.chunks.startPos[0])
+    result += D2.fromSummary(TextSummary.init(startChunk.get[].data.toOpenArray(startIndex, endIndex - 1)), ())
+
+  if target > self.chunks.endPos(())[0]:
+    self.chunks.next(())
+    result += self.chunks.summary(D2, target, Right, ())
+    let endChunk = self.chunks.item
+    if endChunk.isSome:
+      let endIndex = endChunk.get[].toOffset(target - self.chunks.startPos[0])
+      result += D2.fromSummary(TextSummary.init(endChunk.get[].data.toOpenArray(0, endIndex - 1)), ())
+
+  self.position = target
+
+func suffix*(self: var RopeCursor): Rope =
   self.slice(self.rope.tree.extent(int, ()))
+
+func suffix*[D](self: var RopeCursorT[D]): Rope =
+  self.slice(self.rope.tree.extent(D, ()))
 
 func offset*(self: RopeCursor): int =
   self.offset
+
+iterator runes*[D](self: Rope, start: D): Rune =
+  bind runeSize
+  bind runeAt
+
+  var cursor = self.tree.initCursor(D)
+  discard cursor.seekForward(start, Left, ())
+  if cursor.item.isSome:
+    var chunk = cursor.item.get
+    var overshoot = chunk[].toOffset(start - cursor.startPos)
+    while not cursor.atEnd:
+      chunk = cursor.item.get
+      while overshoot < chunk[].data.len:
+        yield chunk[].data.toOpenArray.runeAt(overshoot)
+        overshoot += chunk[].data.toOpenArray.runeSize(overshoot)
+      if cursor.atEnd:
+        break
+      cursor.next(())
+      overshoot = 0
+
+iterator runes*(self: Rope): Rune =
+  for r in self.runes(0):
+    yield r

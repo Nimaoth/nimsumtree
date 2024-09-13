@@ -10,7 +10,7 @@ test "One line":
   check $a == "abcdefghijklmnopqrstuvwxyz"
   check a.bytes == 26
   check a.chars == 26
-  check a.lines == Point(row: 0, column: 26)
+  check a.endPoint == Point(row: 0, column: 26)
 
 proc testStringSummary(text: string) =
   var point = Point()
@@ -25,7 +25,7 @@ proc testStringSummary(text: string) =
   check $a == text
   check a.bytes == text.len
   check a.chars == text.runeLen
-  check a.lines == point
+  check a.endPoint == point
 
   var c = a.cursor()
   let s = c.summary(TextSummary, text.len)

@@ -29,8 +29,8 @@ type
     column*: uint32 ## In bytes
 
   PointDiff* = object
-    rows*: int    ## Number of newlines
-    columns*: int ## In bytes
+    a: Point
+    b: Point
 
   TextSummary* = object
     bytes*: int
@@ -121,23 +121,60 @@ func `+`*(a: Point, b: Point): Point =
   result = a
   result += b
 
-converter toPoint*(a: PointDiff): Point =
-  assert a.rows >= 0
-  assert a.columns >= 0
-  Point(row: a.rows.uint32, column: a.columns.uint32)
+func rows*(d: PointDiff): int = d.a.row.int - d.b.row.int
+func columns*(d: PointDiff): int = d.a.column.int - d.b.column.int
 
-func `+`*(a: Point, b: PointDiff): Point =
-  result.row = (a.row.int + b.rows).uint32
-  if b.rows == 0:
-    result.column = (a.column.int + b.columns).uint32
+converter toPoint*(diff: PointDiff): Point =
+  assert diff.a >= diff.b
+  if diff.rows == 0:
+    Point(row: 0, column: diff.columns.uint32)
   else:
-    result.column = b.columns.uint32
+    Point(row: diff.rows.uint32, column: diff.a.column)
 
-func `-`*(a: Point, b: Point): PointDiff =
-  if a.row == b.row:
-    PointDiff(rows: 0, columns: a.column.int - b.column.int)
-  else:
-    PointDiff(rows: a.row.int - b.row.int, columns: a.column.int)
+func `+`*(point: Point, diff: PointDiff): Point =
+  # diff represenents diff.a - diff.b
+
+  if diff.a.row >= diff.b.row: # Positive diff
+    if point < diff.b:
+      return point
+
+    if point.row > diff.b.row:
+      return Point(row: (point.row.int + diff.rows).uint32, column: point.column)
+
+    result.row = (point.row.int + diff.rows).uint32
+
+    if diff.rows == 0:
+      result.column = (point.column.int + diff.columns).uint32
+    elif diff.rows > 0:
+      result.column = diff.a.column + (point.column - diff.b.column)
+
+  else: # Negative diff
+    if point <= diff.a:
+      return point
+
+    if point <= diff.b:
+      return diff.a
+
+    if point.row > diff.b.row:
+      return Point(row: (point.row.int + diff.rows).uint32, column: point.column)
+
+    result.row = (point.row.int + diff.rows).uint32
+
+    if diff.rows == 0:
+      result.column = (point.column.int + diff.columns).uint32
+    elif diff.rows > 0:
+      result.column = diff.a.column + (point.column - diff.b.column)
+
+func `-`*(a: Point, b: Point): PointDiff = PointDiff(a: a, b: b)
+
+static:
+  for x in 0..2:
+    for y in 0..2:
+      let a = Point.init(1, 1)
+      let b = Point.init(x, y)
+      let d = a - b
+      let a2 = b + d
+      assert a == a2
 
 func addSummary*[C](a: var Point, b: Point, cx: C) = a += b
 func clone*(a: Point): Point = a
@@ -291,12 +328,12 @@ func pointToOffset*(self: Chunk, target: Point): int =
       break
 
     if r == '\n'.Rune:
+      if point.row >= target.row:
+        # assert false, &"Target {target} is beyond the end of a line with length {point.column}: '{self.chars}'"
+        break
+
       point.row += 1
       point.column = 0
-
-      if point.row > target.row:
-        assert false, &"Target {target} is beyond the end of a line with length {point.column}"
-        break
     else:
       point.column += r.size.uint32
 
@@ -313,12 +350,12 @@ func pointToOffset*(self: Chunk, target: Point, bias: Bias): int =
       break
 
     if r == '\n'.Rune:
+      if point.row >= target.row:
+        debugEcho &"Target {target} is beyond the end of a line with length {point.column}: '{self.chars}'"
+        break
+
       point.row += 1
       point.column = 0
-
-      if point.row > target.row:
-        assert false, &"Target {target} is beyond the end of a line with length {point.column}: '{self.chars}'"
-        break
     else:
       point.column += r.size.uint32
 
@@ -1011,6 +1048,24 @@ func suffix*[D](self: var RopeCursorT[D]): Rope =
 
 func offset*(self: RopeCursor): int =
   self.offset
+
+func offset*[D](self: RopeCursorT[D]): int =
+  if self.offset.isSome:
+    self.offset.get
+  elif self.chunks.item.isSome:
+    let chunk = self.chunks.item.get
+    let startPos = self.chunks.startPos
+    let relOffset = chunk[].toOffset(Point(self.position - startPos[0]))
+    assert relOffset < chunk.chars.len
+    let offset = startPos[1] + relOffset
+    return offset
+  elif not self.chunks.didSeek:
+    return 0
+  elif self.atEnd:
+    return self.rope[].bytes
+  else:
+    assert false, "Seek before using offset"
+    return self.rope[].bytes
 
 func position*[D](self: RopeCursorT[D]): D =
   self.position

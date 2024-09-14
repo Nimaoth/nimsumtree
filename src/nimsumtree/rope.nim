@@ -1,4 +1,4 @@
-import std/[strformat, os, strformat]
+import std/[strformat, os, strformat, options]
 import nimsumtree/[sumtree]
 import uni
 
@@ -28,7 +28,9 @@ type
     row*: uint32    ## Number of newlines
     column*: uint32 ## In bytes
 
-  ByteRange* = tuple[first, last: int] ## First inclusive, last exclusive
+  PointDiff* = object
+    rows*: int    ## Number of newlines
+    columns*: int ## In bytes
 
   TextSummary* = object
     bytes*: int
@@ -42,11 +44,16 @@ type
   Chunk* = object
     data: Array[char, chunkBase]
 
+  Range*[T] = object
+    a*: T ## Inclusive
+    b*: T ## Exclusive
+
 proc `=copy`*(a: var Chunk, b: Chunk) {.error.}
 proc `=dup`*(a: Chunk): Chunk {.error.}
 
 func `$`*(a: Count): string {.borrow.}
 func `+=`*(a: var Count, b: Count) {.borrow.}
+func `-=`*(a: var Count, b: Count) {.borrow.}
 func `+`*(a: Count, b: Count): Count {.borrow.}
 func `-`*(a: Count, b: Count): Count {.borrow.}
 func `==`*(a: Count, b: Count): bool {.borrow.}
@@ -55,14 +62,23 @@ func `<=`*(a: Count, b: Count): bool {.borrow.}
 
 func `$`*(a: Count32): string {.borrow.}
 func `+=`*(a: var Count32, b: Count32) {.borrow.}
+func `-=`*(a: var Count32, b: Count32) {.borrow.}
 func `+`*(a: Count32, b: Count32): Count32 {.borrow.}
 func `==`*(a: Count32, b: Count32): bool {.borrow.}
 func `<`*(a: Count32, b: Count32): bool {.borrow.}
 func `<=`*(a: Count32, b: Count32): bool {.borrow.}
 
+func `...`*[T](a, b: T): Range[T] = Range[T](a: a, b: b)
+func len*[T](r: Range[T]): T = r.b - r.a
+
+template chars*(self: Chunk): openArray[char] = self.data.toOpenArray
+template chars*(self: ptr Chunk): openArray[char] = self.data.toOpenArray
+template chars*(self: Chunk, first, last: int): openArray[char] = self.data.toOpenArray(first, last)
+template chars*(self: ptr Chunk, first, last: int): openArray[char] = self.data.toOpenArray(first, last)
+
 func `$`*(r: Chunk): string =
   result = "["
-  result.add r.data.toOpenArray.join("")
+  result.add r.chars.join("")
   result.add "]"
 
 func init*(_: typedesc[Point], row: int, column: int): Point =
@@ -105,12 +121,23 @@ func `+`*(a: Point, b: Point): Point =
   result = a
   result += b
 
-func `-`*(a: Point, b: Point): Point =
-  assert b <= a
-  if a.row == b.row:
-    Point(row: 0, column: a.column - b.column)
+converter toPoint*(a: PointDiff): Point =
+  assert a.rows >= 0
+  assert a.columns >= 0
+  Point(row: a.rows.uint32, column: a.columns.uint32)
+
+func `+`*(a: Point, b: PointDiff): Point =
+  result.row = (a.row.int + b.rows).uint32
+  if b.rows == 0:
+    result.column = (a.column.int + b.columns).uint32
   else:
-    Point(row: a.row - b.row, column: a.column)
+    result.column = b.columns.uint32
+
+func `-`*(a: Point, b: Point): PointDiff =
+  if a.row == b.row:
+    PointDiff(rows: 0, columns: a.column.int - b.column.int)
+  else:
+    PointDiff(rows: a.row.int - b.row.int, columns: a.column.int)
 
 func addSummary*[C](a: var Point, b: Point, cx: C) = a += b
 func clone*(a: Point): Point = a
@@ -135,6 +162,10 @@ func cmp*[A, B, C](a: A, b: (A, B), cx: C): int = cmp(a, b[0], cx)
 func addSummary*[A, B, C](a: var (A, B), b: TextSummary, cx: C) =
   a[0] += A.fromSummary(b, cx)
   a[1] += B.fromSummary(b, cx)
+
+func fromSummary*[A, B, C](D: typedesc[(A, B)], b: TextSummary, cx: C): (A, B) =
+  result[0] += A.fromSummary(b, cx)
+  result[1] += B.fromSummary(b, cx)
 
 func `+=`*(self: var TextSummary, other: TextSummary) =
   let joinedChars = self.lastLineChars + other.firstLineChars
@@ -168,6 +199,24 @@ func clone*(a: Chunk): Chunk = Chunk(data: a.data)
 func toChunk*(text: string): Chunk = Chunk(data: text.toOpenArray(0, text.high).toArray(chunkBase))
 func toChunk*(text: openArray[char]): Chunk = Chunk(data: text.toArray(chunkBase))
 
+func init*(_: typedesc[TextSummary], r: Rune): TextSummary =
+  result.bytes = r.size
+  result.len = 1.Count
+
+  if r == '\n'.Rune:
+    result.lines = Point(row: 1, column: 0)
+    result.lastLineChars = 0.Count32
+  else:
+    result.lines.column = r.size.uint32
+    result.lastLineChars = 1.Count32
+
+  if result.lines.row == 0:
+    result.firstLineChars = result.lastLineChars
+
+  if result.lastLineChars > result.longestRowChars:
+    result.longestRow = result.lines.row
+    result.longestRowChars = result.lastLineChars
+
 func init*(_: typedesc[TextSummary], x: openArray[char]): TextSummary =
   result.bytes = x.len
 
@@ -192,11 +241,11 @@ func init*(_: typedesc[TextSummary], x: string): TextSummary =
   TextSummary.init(x.toOpenArray(0, x.high))
 
 func summary*(x: Chunk): TextSummary =
-  TextSummary.init(x.data.toOpenArray)
+  TextSummary.init(x.chars)
 
 func offsetToCount*(self: Chunk, target: int): Count =
   var offset = 0
-  for r in self.data.toOpenArray.runes:
+  for r in self.chars.runes:
     if offset >= target:
       break
     offset += r.size
@@ -204,7 +253,7 @@ func offsetToCount*(self: Chunk, target: int): Count =
 
 func countToOffset*(self: Chunk, target: Count): int =
   var offset = 0.Count
-  for r in self.data.toOpenArray.runes:
+  for r in self.chars.runes:
     if offset >= target:
       break
     result += r.size
@@ -212,7 +261,7 @@ func countToOffset*(self: Chunk, target: Count): int =
 
 func offsetToPoint*(self: Chunk, target: int): Point =
   var offset = 0
-  for r in self.data.toOpenArray.runes:
+  for r in self.chars.runes:
     if offset >= target:
       break
     if r == '\n'.Rune:
@@ -224,7 +273,7 @@ func offsetToPoint*(self: Chunk, target: int): Point =
 
 func countToPoint*(self: Chunk, target: Count): Point =
   var offset = 0.Count
-  for r in self.data.toOpenArray.runes:
+  for r in self.chars.runes:
     if offset >= target:
       break
     if r == '\n'.Rune:
@@ -234,9 +283,9 @@ func countToPoint*(self: Chunk, target: Count): Point =
       result.column += r.size.uint32
     offset += 1.Count
 
-func pointToOffset*(self: Chunk, target: Point, debug = false): int =
+func pointToOffset*(self: Chunk, target: Point): int =
   var point = Point()
-  for r in self.data.toOpenArray.runes:
+  for r in self.chars.runes:
     if point >= target:
       assert point == target, &"Target {target} is inside of character '{r}'"
       break
@@ -253,9 +302,34 @@ func pointToOffset*(self: Chunk, target: Point, debug = false): int =
 
     result += r.size
 
+func pointToOffset*(self: Chunk, target: Point, bias: Bias): int =
+  var point = Point()
+  for r in self.chars.runes:
+    if point >= target:
+      if bias == Right:
+        return
+
+      assert point == target, &"Target {target} is inside of character '{r}'"
+      break
+
+    if r == '\n'.Rune:
+      point.row += 1
+      point.column = 0
+
+      if point.row > target.row:
+        assert false, &"Target {target} is beyond the end of a line with length {point.column}: '{self.chars}'"
+        break
+    else:
+      point.column += r.size.uint32
+
+    if bias == Left and point > target:
+      return
+
+    result += r.size
+
 func pointToCount*(self: Chunk, target: Point): Count =
   var point = Point()
-  for r in self.data.toOpenArray.runes:
+  for r in self.chars.runes:
     if point >= target:
       assert point == target, &"Target {target} is inside of character '{r}'"
       break
@@ -281,6 +355,9 @@ func toOffset*(self: Chunk, target: Count): int =
 func toOffset*(self: Chunk, target: Point): int =
   self.pointToOffset(target)
 
+func toOffset*(self: Chunk, target: Point, bias: Bias): int =
+  self.pointToOffset(target, bias)
+
 func offsetTo*(self: Chunk, target: int, D: typedesc[int]): int =
   target
 
@@ -290,13 +367,40 @@ func offsetTo*(self: Chunk, target: int, D: typedesc[Point]): Point =
 func offsetTo*(self: Chunk, target: int, D: typedesc[Count]): Count =
   self.offsetToCount(target)
 
+func convert*(self: Chunk, target: int, D2: typedesc[Point]): Point =
+  self.offsetToPoint(target)
+
+func convert*(self: Chunk, target: int, D2: typedesc[Count]): Count =
+  self.offsetToCount(target)
+
+func convert*(self: Chunk, target: int, D2: typedesc[int]): int =
+  target
+
+func convert*(self: Chunk, target: Count, D2: typedesc[Point]): Point =
+  self.countToPoint(target)
+
+func convert*(self: Chunk, target: Count, D2: typedesc[Count]): Count =
+  target
+
+func convert*(self: Chunk, target: Count, D2: typedesc[int]): int =
+  self.countToOffset(target)
+
+func convert*(self: Chunk, target: Point, D2: typedesc[Point]): Point =
+  target
+
+func convert*(self: Chunk, target: Point, D2: typedesc[Count]): Count =
+  self.pointToCount(target)
+
+func convert*(self: Chunk, target: Point, D2: typedesc[int]): int =
+  self.pointToOffset(target)
+
 func clipPoint*(self: Chunk, target: Point, bias: Bias): Point =
-  for (row, slice) in self.data.toOpenArray.lineRanges:
+  for (row, slice) in self.chars.lineRanges:
     if target.row.int != row:
       continue
 
     let len = slice.b - slice.a + 1
-    template bytes: untyped = self.data.toOpenArray[slice]
+    template bytes: untyped = self.chars[slice]
 
     var column = min(target.column.int, len)
     if column == 0 or column == len or (bytes[column - 1].int < 128 and bytes[column].int < 128):
@@ -325,10 +429,11 @@ type
     rope: ptr Rope
     chunks: Cursor[Chunk, (D, int)]
     position: D
+    offset: Option[int]
 
   RopeCursor* = object
     rope: ptr Rope
-    chunks: Cursor[Chunk, int]
+    chunks*: Cursor[Chunk, int]
     offset: int
 
 proc `=copy`*(a: var Rope, b: Rope) {.error.}
@@ -400,6 +505,14 @@ func pointToOffset*(self: Rope, target: Point): int =
   let overshoot = target - cursor.startPos[0]
   return cursor.startPos[1] + cursor.item().mapIt(it[].pointToOffset(overshoot)).get(0)
 
+func pointToOffset*(self: Rope, target: Point, bias: Bias): int =
+  if target >= self.tree.summary.lines:
+    return self.tree.summary.bytes
+  var cursor = self.tree.initCursor (Point, int)
+  discard cursor.seekForward(target, Left, ())
+  let overshoot = target - cursor.startPos[0]
+  return cursor.startPos[1] + cursor.item().mapIt(it[].pointToOffset(overshoot, bias)).get(0)
+
 func pointToCount*(self: Rope, target: Point): Count =
   if target >= self.tree.summary.lines:
     return self.tree.summary.len
@@ -413,6 +526,9 @@ func toOffset*(self: Rope, target: Count): int =
 
 func toOffset*(self: Rope, target: Point): int =
   self.pointToOffset(target)
+
+func toOffset*(self: Rope, target: Point, bias: Bias): int =
+  self.pointToOffset(target, bias)
 
 func toOffsetT*[D](self: Rope, target: D): int =
   var endPos: D = D.default
@@ -456,7 +572,7 @@ func toRope*(value: string): Rope =
 
 func `$`*(r: Rope): string =
   for chunk in r.tree.items(()):
-    result.add chunk.data.toOpenArray.join("")
+    result.add chunk.chars.join("")
 
 func add*(self: var Chunk, text: openArray[char]) =
   self.data.add text
@@ -517,7 +633,7 @@ func add*(self: var Rope, rope: sink Rope) =
     let lastChunk = self.tree.last
     let lastChunkSmallEnough = lastChunk.mapIt(it[].data.len < chunkBase).get(false)
     if lastChunkSmallEnough or chunk.get[].data.len < chunkBase:
-      self.add(chunk.get[].data.toOpenArray)
+      self.add(chunk.get.chars)
       chunks.next(())
 
   self.tree.append(chunks.suffix(()), ())
@@ -534,45 +650,45 @@ func addFront*(self: var Rope, text: string) =
 
 func cursor*(self {.byref.}: Rope, offset: int = 0): RopeCursor
 func seekForward*(self: var RopeCursor, target: int)
-func slice*(self: var RopeCursor, target: int): Rope
+func slice*(self: var RopeCursor, target: int, bias: Bias = Left): Rope
 func suffix*(self: var RopeCursor): Rope
 func cursorT*[D](self {.byref.}: Rope, position: D): RopeCursorT[D]
 func cursorT*(self {.byref.}: Rope, D: typedesc): RopeCursorT[D]
 func seekForward*[D](self: var RopeCursorT[D], target: D)
-func slice*[D](self: var RopeCursorT[D], target: D): Rope
+func slice*[D](self: var RopeCursorT[D], target: D, bias: Bias = Left): Rope
 func suffix*[D](self: var RopeCursorT[D]): Rope
 func atEnd*(self: RopeCursor): bool = self.chunks.atEnd
 func atEnd*[D](self: RopeCursorT[D]): bool = self.chunks.atEnd
 
-func replace*(self: var Rope, slice: ByteRange, text: openArray[char]) =
+func replace*(self: var Rope, slice: Slice[int], text: openArray[char]) =
   var newRope = Rope.new()
   var cursor = self.cursor()
-  newRope.add(cursor.slice(slice.first))
-  cursor.seekForward(slice.last)
+  newRope.add(cursor.slice(slice.a))
+  cursor.seekForward(slice.b + 1)
   newRope.add(text)
   newRope.add(cursor.suffix())
   self = newRope
   self.checkInvariants()
 
-func replace*(self: var Rope, slice: ByteRange, text: string) =
+func replace*(self: var Rope, slice: Slice[int], text: string) =
   self.replace(slice, text.toOpenArray(0, text.high))
 
-func slice*(self: Rope, slice: ByteRange): Rope =
+func slice*(self: Rope, slice: Slice[int], bias: Bias = Bias.Left): Rope =
   var cursor = self.cursor()
-  cursor.seekForward(slice.first)
-  result = cursor.slice(slice.last)
+  cursor.seekForward(slice.a)
+  result = cursor.slice(slice.b + 1, bias)
   result.checkInvariants()
 
-func slice*(self: Rope, first, last: int): Rope =
-  self.slice((first, last))
+func slice*(self: Rope, first, last: int, bias: Bias = Bias.Left): Rope =
+  self.slice(first..<last, bias)
 
-func sliceRows*(self: Rope, slice: ByteRange): Rope =
-  let startOffset = self.pointToOffset(Point.init(slice.first, 0))
-  let endOffset = self.pointToOffset(Point.init(slice.last, 0))
-  self.slice((startOffset, endOffset))
+func sliceRows*(self: Rope, slice: Slice[int]): Rope =
+  let startOffset = self.pointToOffset(Point.init(slice.a, 0))
+  let endOffset = self.pointToOffset(Point.init(slice.b + 1, 0))
+  self.slice(startOffset..<endOffset)
 
 func sliceRows*(self: Rope, first, last: int): Rope =
-  self.sliceRows((first, last))
+  self.sliceRows(first..<last)
 
 func validateOffset*(self: Rope, offset: int, bias: Bias, debug = false): int =
   if offset < 0:
@@ -587,10 +703,10 @@ func validateOffset*(self: Rope, offset: int, bias: Bias, debug = false): int =
   if chunk.isSome:
     case bias
     of Left:
-      while not chunk.get[].data.toOpenArray.isCharBoundary(overshoot):
+      while not chunk.get.chars.isCharBoundary(overshoot):
         dec overshoot
     of Right:
-      while not chunk.get[].data.toOpenArray.isCharBoundary(overshoot):
+      while not chunk.get.chars.isCharBoundary(overshoot):
         inc overshoot
 
     assert overshoot >= 0
@@ -624,42 +740,124 @@ func seekForward*[D](self: var RopeCursorT[D], target: D) =
   assert target >= self.position
   discard self.chunks.seekForward(target, Right, ())
   self.position = target
+  self.offset = int.none
+
+func seekPrevRune*[D](self: var RopeCursorT[D]) =
+  assert self.position > D.default
+  bind runeStart
+  self.offset = int.none
+
+  if self.chunks.item.isSome:
+    var chunk = self.chunks.item.get
+    let startPos = self.chunks.startPos
+    var relOffset = if self.offset.isSome:
+      self.offset.get - startPos[1]
+    else:
+      chunk[].toOffset(self.position - startPos[0])
+
+    if relOffset > 0:
+      relOffset = chunk.chars.runeStart(relOffset - 1)
+      self.position = self.position - D.fromSummary(TextSummary.init(chunk.chars.runeAt(relOffset)), ())
+      self.offset = (startPos[1] + relOffset).some
+    else:
+      if startPos[1] == 0:
+        # This shouldn't happen I think
+        assert false
+        return
+
+      self.chunks.prev(())
+      assert self.chunks.item.isSome
+      chunk = self.chunks.item.get
+      assert chunk.data.len > 0
+      relOffset = chunk.chars.runeStart(chunk[].data.len - 1)
+      self.position = self.position - D.fromSummary(TextSummary.init(chunk.chars.runeAt(relOffset)), ())
+      self.offset = (self.chunks.startPos[1] + relOffset).some
 
 func seekNextRune*[D](self: var RopeCursorT[D]) =
   bind runeSize
 
   if self.chunks.item.isSome:
     let chunk = self.chunks.item.get
-    let startPos = self.chunks.startPos[0]
-    var overshoot = chunk[].toOffset(self.position - startPos)
-    if overshoot < chunk[].data.len:
-      overshoot += chunk[].data.toOpenArray.runeSize(overshoot)
+    let startPos = self.chunks.startPos
+    var relOffset = if self.offset.isSome:
+      self.offset.get - startPos[1]
+    else:
+      chunk[].toOffset(self.position - startPos[0])
 
-    let newOffsetRel = chunk[].offsetTo(overshoot, D)
-    self.position = startPos + newOffsetRel
+    if relOffset < chunk[].data.len:
+      let size = chunk.chars.runeSize(relOffset)
+      self.position.addSummary(TextSummary.init(chunk.chars[relOffset..<relOffset+size]), ())
+      relOffset += size
+      self.offset = (startPos[1] + relOffset).some
 
-    if overshoot == chunk[].data.len:
+    if relOffset == chunk[].data.len:
       self.chunks.next(())
 
 func currentRune*(self: RopeCursor): Rune =
   let item = self.chunks.item
   let relOffset = self.offset - self.chunks.startPos
-  if item.isSome and relOffset < item.get.data.toOpenArray.len:
-    return item.get.data.toOpenArray.runeAt(relOffset)
+  if item.isSome and relOffset < item.get.chars.len:
+    return item.get.chars.runeAt(relOffset)
   return 0.Rune
 
 func currentRune*(self: RopeCursorT): Rune =
-  let item = self.chunks.item
-  if item.isSome:
-    let startPos = self.chunks.startPos[0]
-    let relOffset = item.get[].toOffset(self.position - startPos)
-    if relOffset < item.get.data.toOpenArray.len:
-      return item.get.data.toOpenArray.runeAt(relOffset)
+  let chunk = self.chunks.item
+  if chunk.isSome:
+    let chunk = chunk.get
+    let startPos = self.chunks.startPos
+    var relOffset = if self.offset.isSome:
+      self.offset.get - startPos[1]
+    else:
+      chunk[].toOffset(Point(self.position - startPos[0]), Left)
+
+    while not chunk.chars.isCharBoundary(relOffset):
+      relOffset -= 1
+
+    if relOffset < chunk.chars.len:
+      return chunk.chars.runeAt(relOffset)
+
   return 0.Rune
 
-func lineBounds*(self: Rope, line: int): (int, int) =
+func lineRange*(self: Rope, line: int, D: typedesc): Range[D] =
+  bind mapIt
+
   if line >= self.lines:
-    return (self.tree.summary.bytes, self.tree.summary.bytes)
+    return D.fromSummary(self.tree.summary, ())...D.fromSummary(self.tree.summary, ())
+
+  var cursor = self.tree.initCursor (Point, D)
+
+  discard cursor.seekForward(Point.init(line, 0), Left, ())
+  let firstOvershoot = Point.init(line, 0) - cursor.startPos[0]
+  let firstStartPos = cursor.startPos
+  let firstOffset = cursor.item().mapIt(it[].convert(firstOvershoot, D)).get(D.default)
+  let first = firstStartPos[1] + firstOffset
+
+  discard cursor.seekForward(Point.init(line + 1, 0), Left, ())
+  let lastOvershoot = Point.init(line + 1, 0) - cursor.startPos[0]
+  let lastStartPos = cursor.startPos
+  let lastOffset = cursor.item().mapIt(it[].convert(lastOvershoot, D)).get(D.default)
+  var last = lastStartPos[1] + lastOffset
+
+  when D is int:
+    if line < self.lines - 1:
+      # byte offset includes the \n, so -1
+      last -= 1
+  elif D is Point:
+    if line < self.lines - 1:
+      # byte offset includes the \n, so -1
+      last.column -= 1
+  elif D is Count:
+    if line < self.lines - 1:
+      # byte offset includes the \n, so -1
+      last -= 1.Count
+
+  return first...max(first, last)
+
+func lineBounds*(self: Rope, line: int): Slice[int] =
+  bind mapIt
+
+  if line >= self.lines:
+    return self.tree.summary.bytes..<self.tree.summary.bytes
 
   var cursor = self.tree.initCursor (Point, int)
 
@@ -679,46 +877,74 @@ func lineBounds*(self: Rope, line: int): (int, int) =
     # byte offset includes the \n, so -1
     last -= 1
 
-  return (first, max(first, last))
+  return first..<max(first, last)
 
-func slice*(self: var RopeCursor, target: int): Rope =
+func lineLen*(self: Rope, line: int): int =
+  if line >= 0 and line < self.lines:
+    return self.lineBounds(line).len
+
+  return 0
+
+func lineRuneLen*(self: Rope, line: int): Count =
+  if line >= 0 and line < self.lines:
+    return self.lineRange(line, Count).len
+
+  return 0.Count
+
+func slice*(self: var RopeCursor, target: int, bias: Bias = Left): Rope =
+  ## Returns a new rope representing the text from the current position to the target position.
+  ## If the `target` is not on a character boundary it is snapped to the next boundary depending on `bias`
+
   assert target >= self.offset, &"Can't slice before current offset: {target} before {self.offset}"
 
   result = Rope.new()
   let startChunk = self.chunks.item
   if startChunk.isSome:
     let startIndex = self.offset - self.chunks.startPos
-    let endIndex = min(target, self.chunks.endPos(())) - self.chunks.startPos
-    result.add(startChunk.get[].data.toOpenArray(startIndex, endIndex - 1))
+    assert startChunk.get.chars.isCharBoundary(startIndex)
+
+    var endIndex = min(target, self.chunks.endPos(())) - self.chunks.startPos
+    while not startChunk.get.chars.isCharBoundary(endIndex):
+      case bias:
+      of Left: dec endIndex
+      of Right: inc endIndex
+
+    result.add(startChunk.get.chars(startIndex, endIndex - 1))
 
   if target > self.chunks.endPos(()):
     self.chunks.next(())
     result.add Rope(tree: self.chunks.slice(target, Right, ()))
     let endChunk = self.chunks.item
     if endChunk.isSome:
-      let endIndex = target - self.chunks.startPos
-      result.add(endChunk.get[].data.toOpenArray(0, endIndex - 1))
+      var endIndex = target - self.chunks.startPos
+      while not endChunk.get.chars.isCharBoundary(endIndex):
+        case bias:
+        of Left: dec endIndex
+        of Right: inc endIndex
+
+      result.add(endChunk.get.chars(0, endIndex - 1))
 
   self.offset = target
   result.checkInvariants()
 
-func slice*[D](self: var RopeCursorT[D], target: D): Rope =
+func slice*[D](self: var RopeCursorT[D], target: D, bias: Bias = Left): Rope =
   assert target >= self.position, &"Can't slice before current position: {target} before {self.position}"
 
+  self.offset = int.none
   result = Rope.new()
   let startChunk = self.chunks.item
   if startChunk.isSome:
-    let startIndex = self.position - self.chunks.startPos[0]
-    let endIndex = min(target, self.chunks.endPos(())[0]) - self.chunks.startPos[0]
-    result.add(startChunk.get[].data.toOpenArray(startIndex, endIndex - 1))
+    let startIndex = startChunk.get[].toOffset(self.position - self.chunks.startPos[0])
+    let endIndex = startChunk.get[].toOffset(min(target, self.chunks.endPos(())[0]) - self.chunks.startPos[0], bias)
+    result.add(startChunk.get.chars(startIndex, endIndex - 1))
 
   if target > self.chunks.endPos(())[0]:
     self.chunks.next(())
     result.add Rope(tree: self.chunks.slice(target, Right, ()))
     let endChunk = self.chunks.item
     if endChunk.isSome:
-      let endIndex = target - self.chunks.startPos[0]
-      result.add(endChunk.get[].data.toOpenArray(0, endIndex - 1))
+      let endIndex = endChunk.get[].toOffset(target - self.chunks.startPos[0], bias)
+      result.add(endChunk.get.chars(0, endIndex - 1))
 
   self.position = target
   result.checkInvariants()
@@ -731,7 +957,7 @@ func summary*(self: var RopeCursor, D: typedesc, target: int): D =
   if startChunk.isSome:
     let startIndex = self.offset - self.chunks.startPos
     let endIndex = min(target, self.chunks.endPos(())) - self.chunks.startPos
-    result += D.fromSummary(TextSummary.init(startChunk.get[].data.toOpenArray(startIndex, endIndex - 1)), ())
+    result += D.fromSummary(TextSummary.init(startChunk.get.chars(startIndex, endIndex - 1)), ())
 
   if target > self.chunks.endPos(()):
     self.chunks.next(())
@@ -739,19 +965,20 @@ func summary*(self: var RopeCursor, D: typedesc, target: int): D =
     let endChunk = self.chunks.item
     if endChunk.isSome:
       let endIndex = target - self.chunks.startPos
-      result += D.fromSummary(TextSummary.init(endChunk.get[].data.toOpenArray(0, endIndex - 1)), ())
+      result += D.fromSummary(TextSummary.init(endChunk.get.chars(0, endIndex - 1)), ())
 
   self.offset = target
 
 func summary*[D](self: var RopeCursorT[D], D2: typedesc, target: D): D2 =
   assert target >= self.position
+  self.offset = int.none
 
   result = D2.default
   let startChunk = self.chunks.item
   if startChunk.isSome:
     let startIndex = startChunk.get[].toOffset(self.position - self.chunks.startPos[0])
     let endIndex = startChunk.get[].toOffset(min(target, self.chunks.endPos(())[0]) - self.chunks.startPos[0])
-    result += D2.fromSummary(TextSummary.init(startChunk.get[].data.toOpenArray(startIndex, endIndex - 1)), ())
+    result += D2.fromSummary(TextSummary.init(startChunk.get.chars(startIndex, endIndex - 1)), ())
 
   if target > self.chunks.endPos(())[0]:
     self.chunks.next(())
@@ -759,9 +986,22 @@ func summary*[D](self: var RopeCursorT[D], D2: typedesc, target: D): D2 =
     let endChunk = self.chunks.item
     if endChunk.isSome:
       let endIndex = endChunk.get[].toOffset(target - self.chunks.startPos[0])
-      result += D2.fromSummary(TextSummary.init(endChunk.get[].data.toOpenArray(0, endIndex - 1)), ())
+      result += D2.fromSummary(TextSummary.init(endChunk.get.chars(0, endIndex - 1)), ())
 
   self.position = target
+
+func chunk*(self: var RopeCursor): Option[ptr Chunk] =
+  self.chunks.item
+
+func reset*(self: var RopeCursor) =
+  self.chunks.reset
+  self.offset = 0
+
+func chunkStartPos*(self: var RopeCursor): int =
+  self.chunks.startPos
+
+func chunkStartPos*[D](self: RopeCursorT[D]): (D, int) =
+  self.chunks.startPos
 
 func suffix*(self: var RopeCursor): Rope =
   self.slice(self.rope.tree.extent(int, ()))
@@ -771,6 +1011,9 @@ func suffix*[D](self: var RopeCursorT[D]): Rope =
 
 func offset*(self: RopeCursor): int =
   self.offset
+
+func position*[D](self: RopeCursorT[D]): D =
+  self.position
 
 iterator runes*[D](self: Rope, start: D): Rune =
   bind runeSize
@@ -784,8 +1027,8 @@ iterator runes*[D](self: Rope, start: D): Rune =
     while not cursor.atEnd:
       chunk = cursor.item.get
       while overshoot < chunk[].data.len:
-        yield chunk[].data.toOpenArray.runeAt(overshoot)
-        overshoot += chunk[].data.toOpenArray.runeSize(overshoot)
+        yield chunk.chars.runeAt(overshoot)
+        overshoot += chunk.chars.runeSize(overshoot)
       if cursor.atEnd:
         break
       cursor.next(())

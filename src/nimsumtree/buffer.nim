@@ -4,9 +4,6 @@ import clock
 import nimsumtree/sumtree
 import rope
 
-var debugLog* = false
-var debugLog2* = false
-
 type
   Fragment* = object
     loc*: Locator
@@ -64,7 +61,7 @@ type
     new*: Range[D]
 
   Patch*[D] = object
-    edits: seq[Edit[D]]
+    edits*: seq[Edit[D]]
 
   Anchor* = object
     timestamp*: Lamport
@@ -314,6 +311,7 @@ type
     timestamp*: Lamport
     deferredOps: seq[Operation]
     deferredReplicas: HashSet[ReplicaId]
+    patches*: seq[tuple[editId: Lamport, patch: Patch[uint32]]]
 
 proc edit*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]]): Operation
 
@@ -330,6 +328,13 @@ func ownVersion*(self: BufferSnapshot): SeqNumber = self.version[self.replicaId]
 func toOffset*(offset: int, snapshot: BufferSnapshot): int = offset
 func toOffset*(point: Point, snapshot: BufferSnapshot): int = snapshot.visibleText.pointToOffset(point)
 func toOffset*(anchor: Anchor, snapshot: BufferSnapshot): int = snapshot.summaryForAnchor(int, anchor).get
+
+func version*(op: Operation): Global =
+  case op.kind
+  of Edit:
+    op.edit.version
+  of Undo:
+    op.undo.version
 
 func timestamp*(op: Operation): Lamport =
   case op.kind
@@ -717,15 +722,10 @@ func isVisible(self: Fragment, undoMap: UndoMap): bool =
   return true
 
 proc add(self: var RopeBuilder, doc: Buffer, len: int, wasVisible: bool, isVisible: bool) =
-  if debugLog: echo &"    builder.add ('{self.newVisible}', '{self.newDeleted}', add {len}, {wasVisible}, {isVisible})"
   let text: Rope = if wasVisible:
     self.oldVisibleCursor.slice(self.oldVisibleCursor.offset + len)
   else:
     self.oldDeletedCursor.slice(self.oldDeletedCursor.offset + len)
-
-  if debugLog: echo &"      '{doc.snapshot.visibleText}, '{doc.snapshot.deletedText}', text: '{text}'"
-  defer:
-    if debugLog: echo &"      '{self.newVisible}', '{self.newDeleted}'"
 
   if isVisible:
     self.newVisible.add text
@@ -736,9 +736,6 @@ proc add(self: var RopeBuilder, doc: Buffer, fragment: Fragment, wasVisible: boo
   self.add(doc, fragment.len, wasVisible, fragment.visible)
 
 proc add(self: var RopeBuilder, content: string) =
-  if debugLog: echo &"    builder.add '{content}'"
-  defer:
-    if debugLog: echo &"      {self.newVisible}"
   self.newVisible.add content
 
 proc add(self: var RopeBuilder, doc: Buffer, len: FragmentTextSummary) =
@@ -751,7 +748,6 @@ proc finish(self: var RopeBuilder): (Rope, Rope) =
   (self.newVisible.move, self.newDeleted.move)
 
 proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
-  if debugLog: echo &"applyRemoteEdit {edit} to {self.snapshot.replicaId}"
   var editIndex = 0
   while editIndex < edit.ranges.len:
     var ropeBuilder = initRopeBuilder(self.snapshot.visibleText.cursor(0), self.snapshot.deletedText.cursor(0))
@@ -765,13 +761,12 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
     var insertionOffset = 0
     var insertionSlices = newSeqOfCap[InsertionSlice](edit.ranges.len)
     var newInsertions = newSeqOfCap[sumtree.Edit[InsertionFragment]](edit.ranges.len)
+    var patch = Patch[uint32]()
 
     defer:
       if fragmentStart > oldFragments.startPos().versionedFullOffset.fullOffset:
-        if debugLog2: echo &"    Part of current fragment left: {fragmentStart} > {oldFragments.startPos().versionedFullOffset.fullOffset}"
         let fragmentEnd = oldFragments.endPos(cx).versionedFullOffset.fullOffset
         if fragmentEnd > fragmentStart:
-          if debugLog2: echo &"      Consume rest of fragment: {fragmentEnd} > {fragmentStart}"
           var suffix = oldFragments.item.get[].clone()
           suffix.len = fragmentEnd.int - fragmentStart.int
           suffix.insertionOffset += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
@@ -783,14 +778,13 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
 
       let suffix = oldFragments.suffix(cx)
       ropeBuilder.add(self, suffix.summary().text)
-      if debugLog2: echo suffix.toSeq(())
       newFragments.append(suffix, ())
-      if debugLog2: echo newFragments.toSeq(())
 
       (self.snapshot.visibleText, self.snapshot.deletedText) = ropeBuilder.finish()
       self.snapshot.fragments = newFragments
       self.history.insertionSlices[edit.timestamp] = insertionSlices
       discard self.snapshot.insertions.edit(newInsertions, ())
+      self.patches.add((edit.timestamp, patch))
 
     block innerLoop:
       while editIndex < edit.ranges.len:
@@ -798,19 +792,14 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
         let newText = edit.newTexts[editIndex]
 
         var fragmentEnd = oldFragments.endPos(cx).versionedFullOffset.fullOffset
-        if debugLog: echo &"  apply full range: {range}, '{newText}', {fragmentStart}..<{fragmentEnd}"
 
         if range.a < fragmentStart:
           # Trying to insert out of order, commit current edits by breaking inner loop
-          if debugLog2: echo "    ============================= Trying to insert out of order, commit current edits by breaking inner loop"
           break innerLoop
 
         if fragmentEnd < range.a:
-          if debugLog2: echo &"    Take fragment starting before current edit: {fragmentEnd} < {range.a}"
           if fragmentStart > oldFragments.startPos().versionedFullOffset.fullOffset:
-            if debugLog2: echo &"      Take remaining part of fragment starting before current edit: {fragmentStart} > {oldFragments.startPos().versionedFullOffset.fullOffset}"
             if fragmentEnd > fragmentStart:
-              if debugLog2: echo &"        Take suffix of fragment starting before current edit: {fragmentEnd} > {fragmentStart}"
               var suffix = oldFragments.item.get[].clone()
               suffix.len = fragmentEnd.int - fragmentStart.int
               suffix.insertionOffset += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
@@ -826,9 +815,7 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
           fragmentStart = oldFragments.startPos().versionedFullOffset.fullOffset
 
         fragmentEnd = oldFragments.endPos(cx).versionedFullOffset.fullOffset
-        if debugLog2: echo &"    End of non concurrent fragment: {fragmentEnd} == {range.a} and {fragmentEnd} > {fragmentStart}"
         if fragmentEnd == range.a and fragmentEnd > fragmentStart:
-          if debugLog2: echo &"    End of non concurrent fragment: {fragmentEnd} == {range.a} and {fragmentEnd} > {fragmentStart}"
           var prefix = oldFragments.item.get[].clone()
           prefix.len = fragmentEnd.int - fragmentStart.int
           prefix.insertionOffset += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
@@ -847,7 +834,6 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
             break
 
         if fragmentStart < range.a:
-          if debugLog2: echo &"    Take prefix of overlapping fragment: {fragmentStart} < {range.a}"
           var prefix = oldFragments.item.get[].clone()
           prefix.len = range.a.int - fragmentStart.int
           prefix.insertionOffset += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
@@ -859,16 +845,13 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
 
         # Insert new text
         if newText.len > 0:
-          if debugLog2: echo &"    Add new fragment for insert text: '{newText}'"
-          # todo
-          # var oldStart = oldFragments.startPos().offset
-          # if oldFragments.item.mapIt(it[].visible).get(false):
-          #   if debugLog2: echo &"      Old fragment was visible, offset oldStart: {oldStart} -> {oldStart + fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int}"
-          #   oldStart += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
-          # let newStart = newFragments.summary().text.visible
-
+          var oldStart = oldFragments.startPos().offset.uint32
+          if oldFragments.item.mapIt(it[].visible).get(false):
+            oldStart = (oldStart.int + fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int).uint32
+          let newStart = newFragments.summary().text.visible.uint32
           let id = between(newFragments.summary.maxId, oldFragments.item.mapIt(it[].loc).get(Locator.high))
           let fragment = initFragment(edit.timestamp, newText.len, insertionOffset, id)
+          patch.add initEdit(oldStart...oldStart, newStart...(newStart + newText.len.uint32))
           insertionSlices.add fragment.insertionSlice
           newInsertions.add(InsertionFragment.insertNew(fragment))
           newFragments.add(fragment, ())
@@ -876,7 +859,6 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
           insertionOffset += newText.len
 
         while fragmentStart < range.b + 1.FullOffset:
-          if debugLog2: echo &"    Delete fragments: {fragmentStart} < {range.b + 1.FullOffset}, delete: {range}"
           let fragment = oldFragments.item().get
           let fragmentEnd = oldFragments.endPos(cx).versionedFullOffset.fullOffset
           var intersection = fragment[].clone()
@@ -891,9 +873,10 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
             insertionSlices.add intersection.insertionSlice
 
           if intersection.len > 0:
-            # todo
-            # if fragment[].visible and not intersection.visible:
-            #   let newStart = newFragments.summary().text.visible
+            if fragment[].visible and not intersection.visible:
+              var oldStart = (oldFragments.startPos().offset.int + fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int).uint32
+              let newStart = newFragments.summary().text.visible.uint32
+              patch.add initEdit(oldStart...(oldStart + intersection.len.uint32), newStart...newStart)
             newInsertions.add(InsertionFragment.insertNew(intersection))
             ropeBuilder.add(self, intersection, fragment.visible)
             newFragments.add(intersection, ())
@@ -904,33 +887,60 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
 
         inc editIndex
 
-proc applyRemote*(self: var Buffer, ops: openArray[Operation]): bool =
-  if debugLog: echo &"-------------------------------------"
-  if debugLog: echo &"applyRemote: {ops}"
-  for op in ops:
-    case op.kind
-    of Edit:
-      if not self.snapshot.version.observed(op.edit.timestamp):
-        self.applyRemoteEdit(op.edit)
-        self.snapshot.version.observe(op.edit.timestamp)
-        self.timestamp.observe(op.edit.timestamp)
-        discard self.timestamp.tick() # todo: necessary?
-      else:
-        if debugLog2: echo "already observed"
+proc applyOp(self: var Buffer, op: Operation): bool =
+  case op.kind
+  of Edit:
+    if not self.snapshot.version.observed(op.edit.timestamp):
+      self.applyRemoteEdit(op.edit)
+      self.snapshot.version.observe(op.edit.timestamp)
+      self.timestamp.observe(op.edit.timestamp)
+      discard self.timestamp.tick() # todo: necessary?
 
-    of Undo:
-      if not self.snapshot.version.observed(op.undo.timestamp):
-        if not self.applyUndo(op.undo):
-          return false
-        self.snapshot.version.observe(op.undo.timestamp)
-        self.timestamp.observe(op.undo.timestamp)
-      else:
-        if debugLog2: echo "already observed"
+  of Undo:
+    if not self.snapshot.version.observed(op.undo.timestamp):
+      if not self.applyUndo(op.undo):
+        return false
+      self.snapshot.version.observe(op.undo.timestamp)
+      self.timestamp.observe(op.undo.timestamp)
 
   return true
 
+func canApplyOp(self: var Buffer, op: Operation): bool =
+  if op.timestamp.replicaId in self.deferredReplicas:
+    return false
+  return self.snapshot.version.observedAll(op.version)
+
+proc flushDeferredOps(self: var Buffer): bool =
+  self.deferredReplicas.clear()
+  let currentDeferredOps = self.deferredOps
+  self.deferredOps.setLen(0)
+
+  var deferredOps = newSeq[Operation]()
+  for op in currentDeferredOps:
+    if self.canApplyOp(op):
+      if not self.applyOp(op):
+        return false
+    else:
+      self.deferredReplicas.incl(op.timestamp.replicaId)
+      deferredOps.add(op)
+
+  self.deferredOps.add(deferredOps)
+  return true
+
+proc applyRemote*(self: var Buffer, ops: openArray[Operation]): bool =
+  var deferredOps = newSeq[Operation]()
+  for op in ops:
+    if self.canApplyOp(op):
+      if not self.applyOp(op):
+        return false
+    else:
+      self.deferredReplicas.incl(op.timestamp.replicaId)
+      deferredOps.add(op)
+
+  self.deferredOps.add(deferredOps)
+  return self.flushDeferredOps()
+
 proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]], timestamp: Lamport): EditOperation =
-  if debugLog: echo &"applyLocal {edits}, {timestamp} to {self.snapshot.replicaId}"
   result.timestamp = timestamp
   result.version = self.snapshot.version
   result.ranges = newSeqOfCap[Slice[FullOffset]](edits.len)
@@ -947,17 +957,15 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
     ropeBuilder.add(self, newFragments.summary().text)
 
     var fragmentStart = oldFragments.startPos().visible
-    if debugLog2: echo &"{newFragments.toSeq(())}"
 
     var insertionSlices = newSeqOfCap[InsertionSlice](edits.len)
     var newInsertions = newSeqOfCap[sumtree.Edit[InsertionFragment]](edits.len)
+    var patch = Patch[uint32]()
 
     defer:
       if fragmentStart > oldFragments.startPos().visible:
-        if debugLog2: echo &"    Part of current fragment left: {fragmentStart} > {oldFragments.startPos().visible}"
         let fragmentEnd = oldFragments.endPos(()).visible
         if fragmentEnd > fragmentStart:
-          if debugLog2: echo &"      Consume rest of fragment: {fragmentEnd} > {fragmentStart}"
           var suffix = oldFragments.item.get[].clone()
           suffix.len = fragmentEnd - fragmentStart
           suffix.insertionOffset += fragmentStart - oldFragments.startPos().visible
@@ -975,11 +983,11 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
       self.snapshot.fragments = newFragments
       self.history.insertionSlices[timestamp] = insertionSlices
       discard self.snapshot.insertions.edit(newInsertions, ())
+      self.patches.add((timestamp, patch))
 
     block innerLoop:
       while opIndex < edits.len:
         let edit {.cursor.} = edits[opIndex]
-        if debugLog: echo &"  apply {edit}"
 
         let fragmentEnd = oldFragments.endPos(()).visible
 
@@ -988,11 +996,8 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
           break innerLoop
 
         if fragmentEnd < edit.range.a:
-          if debugLog2: echo &"    Take fragment starting before current edit: {fragmentEnd} < {edit.range.a}"
           if fragmentStart > oldFragments.startPos().visible:
-            if debugLog2: echo &"      Take remaining part of fragment starting before current edit: {fragmentStart} > {oldFragments.startPos().visible}"
             if fragmentEnd > fragmentStart:
-              if debugLog2: echo &"        Take suffix of fragment starting before current edit: {fragmentEnd} > {fragmentStart}"
               var suffix = oldFragments.item.get[].clone()
               suffix.len = fragmentEnd - fragmentStart
               suffix.insertionOffset += fragmentStart - oldFragments.startPos().visible
@@ -1010,8 +1015,8 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
 
         let fullRangeStart = FullOffset(edit.range.a + oldFragments.startPos().deleted)
 
+        # Take prefix of overlapping fragment
         if fragmentStart < edit.range.a:
-          if debugLog2: echo &"    Take prefix of overlapping fragment: {fragmentStart} < {edit.range.a}"
           var prefix = oldFragments.item.get[].clone()
           prefix.len = edit.range.a - fragmentStart
           prefix.insertionOffset += fragmentStart - oldFragments.startPos().visible
@@ -1021,23 +1026,20 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
           newFragments.add(prefix, ())
           fragmentStart = edit.range.a
 
-        if debugLog2: echo &"{opIndex}: fragmentPos: {fragmentStart}..<{fragmentEnd}"
-
         # Insert new text
         if edit.text.len > 0:
-          if debugLog2: echo &"    Add new fragment for insert text: '{edit.text}'"
-          # todo
-          # let newStart = newFragments.summary().text.visible
+          let newStart = newFragments.summary().text.visible.uint32
           let id = between(newFragments.summary.maxId, oldFragments.item.mapIt(it[].loc).get(Locator.high))
           let fragment = initFragment(timestamp, edit.text.len, insertionOffset, id)
+          patch.add initEdit(fragmentStart.uint32...fragmentStart.uint32, newStart...(newStart + edit.text.len.uint32))
           insertionSlices.add fragment.insertionSlice
           newInsertions.add(InsertionFragment.insertNew(fragment))
           newFragments.add(fragment, ())
           ropeBuilder.add(edit.text)
           insertionOffset += edit.text.len
 
+        # Delete overlapping fragments
         while fragmentStart < edit.range.b + 1:
-          if debugLog2: echo &"    Delete fragments: {fragmentStart} < {edit.range.b + 1}, delete: {edit.range}"
           let fragment = oldFragments.item().get
           let fragmentEnd = oldFragments.endPos(()).visible
           var intersection = fragment[].clone()
@@ -1051,8 +1053,8 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
 
           if intersection.len > 0:
             if fragment[].visible and not intersection.visible:
-              # todo
-              # let newStart = newFragments.summary().text.visible
+              let newStart = newFragments.summary().text.visible.uint32
+              patch.add initEdit(fragmentStart.uint32...intersectionEnd.uint32, newStart...newStart)
               insertionSlices.add intersection.insertionSlice
 
             newInsertions.add(InsertionFragment.insertNew(intersection))
@@ -1106,7 +1108,7 @@ proc fragmentIdsForEdits(self: var Buffer, edits: openArray[Lamport]): seq[Locat
 proc applyUndo*(self: var Buffer, undo: UndoOperation): bool =
   self.snapshot.undoMap.insert(undo)
 
-  var edits = Patch[uint32]()
+  var patch = Patch[uint32]()
   var oldFragments = self.snapshot.fragments.initCursor((Option[Locator], int))
   var newFragments = SumTree[Fragment].new()
   var newRopes = initRopeBuilder(self.snapshot.visibleText.cursor(0), self.snapshot.deletedText.cursor(0))
@@ -1130,9 +1132,9 @@ proc applyUndo*(self: var Buffer, undo: UndoOperation): bool =
       let oldStart = oldFragments.startPos[1]
       let newStart = newFragments.summary.text.visible
       if fragmentWasVisible and not fragment.visible:
-        edits.add initEdit(oldStart.uint32...(oldStart.uint32 + fragment.len.uint32), newStart.uint32...newStart.uint32)
+        patch.add initEdit(oldStart.uint32...(oldStart.uint32 + fragment.len.uint32), newStart.uint32...newStart.uint32)
       elif not fragmentWasVisible and fragment.visible:
-        edits.add initEdit(oldStart.uint32...oldStart.uint32, newStart.uint32...(newStart.uint32 + fragment.len.uint32))
+        patch.add initEdit(oldStart.uint32...oldStart.uint32, newStart.uint32...(newStart.uint32 + fragment.len.uint32))
 
       newRopes.add(self, fragment, fragmentWasVisible)
       newFragments.add(fragment, ())
@@ -1146,6 +1148,7 @@ proc applyUndo*(self: var Buffer, undo: UndoOperation): bool =
   self.snapshot.fragments = newFragments
   self.snapshot.visibleText = visibleText
   self.snapshot.deletedText = deletedText
+  self.patches.add((undo.timestamp, patch))
 
   return true
 
@@ -1199,7 +1202,6 @@ proc endTransaction(self: var Buffer): Option[ptr HistoryEntry] =
   self.history.endTransaction()
 
 proc edit*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]]): Operation =
-  if debugLog: echo &"edit {self.timestamp.replicaId}: {edits}"
   discard self.startTransaction()
   if self.timestamp.value == 0:
     discard self.timestamp.tick()
@@ -1246,29 +1248,20 @@ proc delete*(self: var Buffer, pos: Slice[int]): seq[Operation] =
   assert pos.a <= pos.b + 1
   assert pos.b < self.snapshot.visibleText.bytes
 
-  if debugLog: echo &"-------------------------------------"
-  if debugLog: echo &"delete({pos}) in\n{($self).indent(4)}"
   result.add self.edit([(pos, "")])
-  if debugLog: echo &"delete -> ({pos}) in\n{($self).indent(4)}"
 
 proc deleteRange*(self: var Buffer, pos: Slice[int]): seq[Operation] =
   assert pos.a >= 0
   assert pos.a <= pos.b
   assert pos.b < self.snapshot.visibleText.bytes
 
-  if debugLog: echo &"-------------------------------------"
-  if debugLog: echo &"deleteRange({pos}) in\n{($self).indent(4)}"
   result.add self.edit([(pos, "")])
-  if debugLog: echo &"deleteRange -> ({pos}) in\n{($self).indent(4)}"
 
 proc insertText*(self: var Buffer, pos: int, text: string): seq[Operation] =
   if text.len == 0:
     return
 
-  if debugLog: echo &"-------------------------------------"
-  if debugLog: echo &"insertText({pos}, '{text}')\n{($self).indent(4)}"
   result.add self.edit([(pos..<pos, text)])
-  if debugLog: echo &"insertText -> ({pos}, '{text}') in\n{($self).indent(4)}"
 
 proc dump*(self: Buffer): string =
   var startFullOffset = 0

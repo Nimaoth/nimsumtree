@@ -196,6 +196,7 @@ func addSummary*[A, B](a: var (A, B), b: (A, B)) =
 
 func clone*[A, B](a: (A, B)): (A, B) = (a[0].clone(), a[1].clone())
 func cmp*[A, B, C](a: A, b: (A, B), cx: C): int = cmp(a, b[0], cx)
+func cmp*[A, B, C](a: B, b: (A, B), cx: C): int = cmp(a, b[1], cx)
 
 func addSummary*[A, B, C](a: var (A, B), b: TextSummary, cx: C) =
   a[0] += A.fromSummary(b, cx)
@@ -330,7 +331,6 @@ func pointToOffset*(self: Chunk, target: Point): int =
 
     if r == '\n'.Rune:
       if point.row >= target.row:
-        # assert false, &"Target {target} is beyond the end of a line with length {point.column}: '{self.chars}'"
         break
 
       point.row += 1
@@ -691,6 +691,7 @@ func slice*(self: var RopeCursor, target: int, bias: Bias = Left): Rope
 func suffix*(self: var RopeCursor): Rope
 func cursorT*[D](self {.byref.}: Rope, position: D): RopeCursorT[D]
 func cursorT*(self {.byref.}: Rope, D: typedesc): RopeCursorT[D]
+func seekForward*[D](self: var RopeCursorT[D], target: int)
 func seekForward*[D](self: var RopeCursorT[D], target: D)
 func slice*[D](self: var RopeCursorT[D], target: D, bias: Bias = Left): Rope
 func suffix*[D](self: var RopeCursorT[D]): Rope
@@ -772,6 +773,17 @@ func seekForward*(self: var RopeCursor, target: int) =
   assert target >= self.offset
   discard self.chunks.seekForward(target, Right, ())
   self.offset = target
+
+func seekForward*[D](self: var RopeCursorT[D], target: int) =
+  discard self.chunks.seekForward(target, Right, ())
+  if self.chunks.atEnd:
+    self.position = self.chunks.endPos(())[0]
+    self.offset = target.some
+    assert self.chunks.endPos(())[1] == target
+  else:
+    let overshoot = target - self.chunks.startPos[1]
+    self.position = self.chunks.startPos[0] + self.chunks.item.get[].offsetTo(overshoot, D)
+    self.offset = target.some
 
 func seekForward*[D](self: var RopeCursorT[D], target: D) =
   assert target >= self.position

@@ -413,6 +413,9 @@ func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor): Option
 func summary*(self: Anchor, D: typedesc, snapshot: BufferSnapshot): D =
   return snapshot.summaryForAnchor(D, self).get
 
+func summaryOpt*(self: Anchor, D: typedesc, snapshot: BufferSnapshot): Option[D] =
+  return snapshot.summaryForAnchor(D, self)
+
 func anchorAtOffset(self: BufferSnapshot, offset: int, bias: Bias): Anchor =
   if bias == Left and offset == 0:
     Anchor.low

@@ -1,4 +1,4 @@
-import std/[macros, strformat, sequtils, options, strutils, sugar]
+import std/[macros, strformat, sequtils, options, strutils, sugar, algorithm]
 import arc, static_array
 
 export arc, static_array, options, strutils
@@ -36,11 +36,12 @@ elif defined(testing):
   import std/strutils
 
   const treeBase* = 2
-  static:
-    echo &"Sumtree: test environment, use treeBase = {treeBase}"
 
 else:
   const treeBase* = 12
+
+static:
+  echo &"Sumtree treeBase = {treeBase}"
 
 static:
   assert treeBase mod 2 == 0
@@ -50,6 +51,7 @@ type
 
 template summaryType*(I: typedesc): untyped = typeof(I.default.summary)
 template summaryArrayType*(I: typedesc): untyped = Array[typeof(I.default.summary), treeBase]
+template keyType*(I: typedesc): untyped = typeof(I.default.key())
 
 type
   ItemArray*[I] = Array[I, treeBase]
@@ -103,6 +105,14 @@ type
     itemBytes: int
     summariesBytes: int
     totalBytes: int
+
+  EditKind* = enum Insert, Remove
+  Edit*[I] = object
+    case kind*: EditKind
+    of Insert:
+      item*: I
+    of Remove:
+      key*: I.keyType
 
 # static:
 #   type Data = array[128, int8]
@@ -374,7 +384,7 @@ func new*[I](_: typedesc[SumTree[I]]): SumTree[I] =
 func clone*[I](a {.byref.}: SumTree[I]): SumTree[I] =
   a.root.clone().toTree
 
-func new*[I](_: typedesc[SumTree[I]], items: sink seq[I]): SumTree[I] =
+func new*[I, C](_: typedesc[SumTree[I]], items: sink seq[I], cx: C): SumTree[I] =
   mixin summary
   mixin `+=`
   mixin addSummary
@@ -393,7 +403,7 @@ func new*[I](_: typedesc[SumTree[I]], items: sink seq[I]): SumTree[I] =
     var summaries: SummaryArray[I.summaryType] = subItems.mapIt(it.summary)
     var s: I.summaryType = summaries[0].clone()
     for k in 1..summaries.high:
-      s += summaries[k]
+      s.addSummary(summaries[k], cx)
 
     nodes.add Node[I](kind: Leaf, mSummary: s, mItemArray: subItems, mSummaries: summaries.move)
 
@@ -410,7 +420,7 @@ func new*[I](_: typedesc[SumTree[I]], items: sink seq[I]): SumTree[I] =
         )
 
       let childSummary = childNode.summary
-      currentParentNode.get.mSummary += childSummary
+      currentParentNode.get.mSummary.addSummary(childSummary, cx)
       currentParentNode.get.mSummaries.add childSummary
       currentParentNode.get.mChildren.add Arc.new(childNode.move)
 
@@ -744,7 +754,7 @@ func append*[I; C](self: var SumTree[I], other: sink SumTree[I], cx: C) =
   self.checkInvariants()
 
 func extend*[I; C](self: var SumTree[I], values: sink seq[I], cx: C) =
-  self.append(SumTree[I].new(values), cx)
+  self.append(SumTree[I].new(values, cx), cx)
 
 func add*[I; C](self: var SumTree[I], item: sink I, cx: C) =
   let summary = item.summary
@@ -755,6 +765,66 @@ func add*[I; C](self: var SumTree[I], item: sink I, cx: C) =
     mItemArray: [item.move].toArray(treeBase),
   )), cx)
   self.checkInvariants()
+
+func cmp*[I](a, b: Edit[I]): int = cmp(a.key, b.key)
+func key*[I](a: Edit[I]): I.keyType =
+  mixin key
+  case a.kind
+  of Insert:
+    a.item.key()
+  of Remove:
+    a.key
+
+func get*[I; K; C](self: SumTree[I], key: K, cx: C): Option[ptr I] =
+  var cursor = self.initCursor(K)
+  if cursor.seek(key, Left, cx):
+    return cursor.item
+  return none(ptr I)
+
+func edit*[I; C](self: var SumTree[I], edits: sink seq[Edit[I]], cx: C): seq[I] =
+  mixin key
+  type Key = I.keyType()
+
+  if edits.len == 0:
+    return @[]
+
+  var removed = newSeq[I]()
+
+  func cmpEdit(a, b: Edit[I]): int = cmp(a.key(), b.key())
+  edits.sort(cmpEdit)
+
+  self = block:
+    var cursor = self.initCursor(Key)
+    var newTree = SumTree[I].new()
+    var bufferedItems = newSeq[I]()
+
+    discard cursor.seek(Key.default, Left, cx)
+    for edit in edits:
+      let newKey = edit.key()
+      var oldItem = cursor.item
+      if oldItem.mapIt(it[].key() < newKey).get(false):
+        newTree.extend(bufferedItems.move, cx)
+        bufferedItems = newSeq[I]()
+        let slice = cursor.slice(newKey, Left, cx)
+        newTree.append(slice, cx)
+        oldItem = cursor.item
+
+      if oldItem.isSome:
+        if oldItem.get[].key == newKey:
+          removed.add(oldItem.get[].clone())
+          cursor.next(cx)
+
+      case edit.kind
+      of Insert:
+        bufferedItems.add(edit.item)
+      of Remove:
+        discard
+
+    newTree.extend(bufferedItems, cx)
+    newTree.append(cursor.suffix(cx), cx)
+    newTree
+
+  return removed
 
 func initCursor*[I](self {.byref.}: SumTree[I], D: typedesc): Cursor[I, D] =
   result.node = self.root
@@ -1201,6 +1271,10 @@ func itemClone*[I, D](self: Cursor[I, D]): Option[I] =
       assert false, "Stack top should contain leaf node"
 
   return I.none
+
+func fromSummary*[S; C](D: typedesc, summary: S, cx: C): D =
+  result = D.default
+  result.addSummary(summary, cx)
 
 # impl Dimension for tuple[]
 func addSummary*[S; C](a: var tuple[], summary: S, cx: C) = discard

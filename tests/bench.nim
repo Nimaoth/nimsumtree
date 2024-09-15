@@ -9,19 +9,17 @@ when isMainModule:
 
   proc initBuffers(initialText: string) =
     doc1 = initBuffer(0.ReplicaId, initialText)
-    doc2 = doc1.clone()
-    doc2.replicaId = 1.ReplicaId
-    doc2.timestamp = initLamport(1.ReplicaId)
+    doc2 = doc1.clone(1.ReplicaId)
 
     ops1.setLen 0
     ops2.setLen 0
 
   proc sync(d1 = true, d2 = true) =
     if d1:
-      doc1.applyRemote(ops2)
+      discard doc1.applyRemote(ops2)
       ops2.setLen 0
     if d2:
-      doc2.applyRemote(ops1)
+      discard doc2.applyRemote(ops1)
       ops1.setLen 0
 
   template insert1(pos1, text1: untyped): untyped =

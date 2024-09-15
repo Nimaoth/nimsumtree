@@ -50,13 +50,13 @@ echo a""")
 test "Rope.replace":
   var a = Rope.new("abcdefghijklmnopqrstuvwxyz")
   check $a == "abcdefghijklmnopqrstuvwxyz"
-  a.replace((0, 5), "12345")
+  a.replace(0..<5, "12345")
   check $a == "12345fghijklmnopqrstuvwxyz"
-  a.replace((5, 10), "6789")
+  a.replace(5..<10, "6789")
   check $a == "123456789klmnopqrstuvwxyz"
-  a.replace((10, 15), "")
+  a.replace(10..<15, "")
   check $a == "123456789kqrstuvwxyz"
-  a.replace((15, 15), "*/+-")
+  a.replace(15..<15, "*/+-")
   check $a == "123456789kqrstu*/+-vwxyz"
 
 test "Rope.slice":
@@ -118,7 +118,7 @@ test "Rope.addFront":
 test "Basic replace and slice":
   var a = Rope.new("Hello world!")
   check $a == "Hello world!"
-  a.replace((6, 11), "you")
+  a.replace(6..<11, "you")
   check $a == "Hello you!"
 
   let b: Rope = a.slice(6, 10)

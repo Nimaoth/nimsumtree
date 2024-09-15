@@ -8,11 +8,12 @@ when ropeChunkBase > 0:
 
 elif defined(testing):
   const chunkBase* = 16
-  static:
-    echo &"Rope: test environment, use chunkBase = {chunkBase}"
 
 else:
   const chunkBase* = 128
+
+static:
+  echo &"Rope chunkBase = {chunkBase}"
 
 when chunkBase < 4:
   {.error: "chunkBase must be >= 4 because utf-8 characters can be encoded with " &
@@ -351,7 +352,6 @@ func pointToOffset*(self: Chunk, target: Point, bias: Bias): int =
 
     if r == '\n'.Rune:
       if point.row >= target.row:
-        debugEcho &"Target {target} is beyond the end of a line with length {point.column}: '{self.chars}'"
         break
 
       point.row += 1
@@ -596,7 +596,7 @@ func new*(_: typedesc[Rope], value: openArray[char]): Rope =
     chunks.add Chunk(data: value.toOpenArray(i, last - 1).toArray(chunkBase))
     i = last
 
-  result.tree = SumTree[Chunk].new(chunks)
+  result.tree = SumTree[Chunk].new(chunks, ())
 
 func toRope*(value: openArray[char]): Rope =
   Rope.new(value)
@@ -927,6 +927,8 @@ func lineRuneLen*(self: Rope, line: int): Count =
     return self.lineRange(line, Count).len
 
   return 0.Count
+
+func summary*(self: Rope): TextSummary = self.tree.summary
 
 func slice*(self: var RopeCursor, target: int, bias: Bias = Left): Rope =
   ## Returns a new rope representing the text from the current position to the target position.

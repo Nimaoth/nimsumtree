@@ -20,9 +20,7 @@ suite "tests":
       discard doc1.insertText(0, initialText)
     else:
       doc1 = initBuffer(0.ReplicaId, initialText)
-    doc2 = doc1.clone()
-    doc2.replicaId = 1.ReplicaId
-    doc2.timestamp = initLamport(1.ReplicaId)
+    doc2 = doc1.clone(1.ReplicaId)
 
     ops1.setLen 0
     ops2.setLen 0
@@ -31,13 +29,13 @@ suite "tests":
     if d1:
       if debugLog: echo "========================================= sync 2 to 1"
       if debugLog: echo doc1
-      doc1.applyRemote(ops2)
+      discard doc1.applyRemote(ops2)
       ops2.setLen 0
       if debugLog: echo "  doc1: '", doc1.contentString, "': ", doc1
     if d2:
       if debugLog: echo "========================================= sync 1 to 2"
       if debugLog: echo doc2
-      doc2.applyRemote(ops1)
+      discard doc2.applyRemote(ops1)
       ops1.setLen 0
       if debugLog: echo "  doc2: '", doc2.contentString, "': ", doc2
 
@@ -88,6 +86,63 @@ suite "tests":
     check doc1.contentString == doc2.contentString
     check doc1.items == doc2.items
 
+  test "undo":
+    initBuffers("In 1968,")
+
+    let op11 = doc1.insertText(3, "December of ")
+    let op12 = doc2.insertText(8, " Douglas Engelbart")
+
+    check doc1.contentString == "In December of 1968,"
+    check doc2.contentString == "In 1968, Douglas Engelbart"
+
+    discard doc1.applyRemote(op12)
+    discard doc2.applyRemote(op11)
+
+    check doc1.contentString == "In December of 1968, Douglas Engelbart"
+    check doc2.contentString == "In December of 1968, Douglas Engelbart"
+
+    let op21 = doc1.insertText(29, "C. ")
+    let op22 = doc2.insertText(38, " demonstrated")
+
+    check doc1.contentString == "In December of 1968, Douglas C. Engelbart"
+    check doc2.contentString == "In December of 1968, Douglas Engelbart demonstrated"
+
+    discard doc1.applyRemote(op22)
+    discard doc2.applyRemote(op21)
+
+    check doc1.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
+    check doc2.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
+
+    let undo1 = doc1.undo(op21[0].edit.timestamp)
+
+    check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
+    check doc2.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
+
+    discard doc2.applyRemote(@[undo1])
+
+    check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
+    check doc2.contentString == "In December of 1968, Douglas Engelbart demonstrated"
+
+    let undo2 = doc2.undo(op12[0].edit.timestamp)
+
+    check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
+    check doc2.contentString == "In December of 1968, demonstrated"
+
+    discard doc1.applyRemote(@[undo2])
+
+    check doc1.contentString == "In December of 1968, demonstrated"
+    check doc2.contentString == "In December of 1968, demonstrated"
+
+    let undo3 = doc2.undo(op21[0].edit.timestamp)
+
+    check doc1.contentString == "In December of 1968, demonstrated"
+    check doc2.contentString == "In December of 1968,C.  demonstrated"
+
+    discard doc1.applyRemote(@[undo3])
+
+    check doc1.contentString == "In December of 1968,C.  demonstrated"
+    check doc2.contentString == "In December of 1968,C.  demonstrated"
+
   test "Replace overlapping":
     const initialContent = "Hello world!"
     var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
@@ -99,8 +154,8 @@ suite "tests":
     check $doc1.visibleText == "Hello ?"
     check $doc2.visibleText == "Hello you!"
 
-    doc1.applyRemote(@[ops2])
-    doc2.applyRemote(@[ops1])
+    discard doc1.applyRemote(@[ops2])
+    discard doc2.applyRemote(@[ops1])
 
     check $doc1.visibleText == "Hello you?"
     check $doc2.visibleText == "Hello you?"
@@ -410,10 +465,10 @@ suite "tests":
 
       if debugLog: echo "  doc1: ", doc1.contentLength, "/", doc1.items.len, ", ", doc1.contentString
       if debugLog: echo "  visible: ", doc1.visibleText
-      if debugLog: echo "  deleted: ", doc1.deletedText
+      if debugLog: echo "  deleted: ", doc1.snapshot.deletedText
       if debugLog: echo "  doc2: ", doc2.contentLength, "/", doc2.items.len, ", ", doc2.contentString
       if debugLog: echo "  visible: ", doc2.visibleText
-      if debugLog: echo "  deleted: ", doc2.deletedText
+      if debugLog: echo "  deleted: ", doc2.snapshot.deletedText
 
       # if i == 34:
       #   debugLog = true
@@ -469,12 +524,12 @@ suite "tests":
       check doc2.contentString == "abc34ef"
       check doc3.contentString == "abcde56"
 
-      doc1.applyRemote(op2)
-      doc1.applyRemote(op3)
-      doc2.applyRemote(op1)
-      doc2.applyRemote(op3)
-      doc3.applyRemote(op1)
-      doc3.applyRemote(op2)
+      discard doc1.applyRemote(op2)
+      discard doc1.applyRemote(op3)
+      discard doc2.applyRemote(op1)
+      discard doc2.applyRemote(op3)
+      discard doc3.applyRemote(op1)
+      discard doc3.applyRemote(op2)
 
       check doc1.contentString == "a12c34e56"
       check doc2.contentString == "a12c34e56"
@@ -490,7 +545,7 @@ suite "tests":
     check $doc1.visibleText == "foo([a], [b])"
     check $doc2.visibleText == "foo(a, b)"
 
-    doc2.applyRemote(@[ops1])
+    discard doc2.applyRemote(@[ops1])
 
     check $doc1.visibleText == "foo([a], [b])"
     check $doc2.visibleText == "foo([a], [b])"
@@ -505,7 +560,7 @@ suite "tests":
     check $doc1.visibleText == "foo([a], [b])"
     check $doc2.visibleText == "foo(a, b)"
 
-    doc2.applyRemote(@[ops1])
+    discard doc2.applyRemote(@[ops1])
 
     check $doc1.visibleText == "foo([a], [b])"
     check $doc2.visibleText == "foo([a], [b])"

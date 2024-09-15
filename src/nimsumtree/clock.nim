@@ -8,7 +8,14 @@ type
     value*: SeqNumber
 
   Global* = distinct seq[uint32]
-  Locator* = distinct seq[uint64]
+  Locator* = object
+    path: seq[uint64]
+
+func saturatingSub(a, b: uint64): uint64 =
+  if a > b:
+    a - b
+  else:
+    0
 
 func `$`*(_: ReplicaId): string {.borrow.}
 func `==`*(a, b: ReplicaId): bool {.borrow.}
@@ -125,19 +132,18 @@ func changedSince*(self: Global, other: Global): bool =
       return true
   return true
 
-func default*(_: typedesc[Locator]): Locator = Locator(@[uint64.low])
-template asBase(self: Locator): seq[uint64] = (seq[uint64])(self)
+func default*(_: typedesc[Locator]): Locator = Locator(path: @[uint64.low])
 
 func `=copy`*(self: var Locator, other: Locator) =
-  self.asBase.setLen(other.asBase.len)
-  for i in 0..<self.asBase.len:
-    self.asBase[i] = other.asBase[i]
+  self.path.setLen(other.path.len)
+  for i in 0..<self.path.len:
+    self.path[i] = other.path[i]
 
-func len*(self: Locator): int {.borrow.}
+func len*(self: Locator): int = self.path.len
 func cmp*(a, b: Locator): int =
   if a.len > 0 and b.len > 0:
-    let ax = cast[ptr UncheckedArray[uint64]](a.asBase[0].addr)
-    let bx = cast[ptr UncheckedArray[uint64]](b.asBase[0].addr)
+    let ax = cast[ptr UncheckedArray[uint64]](a.path[0].addr)
+    let bx = cast[ptr UncheckedArray[uint64]](b.path[0].addr)
     for i in 0..<min(a.len, b.len):
       let c = cmp(ax[i], bx[i])
       if c != 0:
@@ -147,12 +153,12 @@ func cmp*(a, b: Locator): int =
 func `<`*(a, b: Locator): bool = cmp(a, b) < 0
 func `<=`*(a, b: Locator): bool = cmp(a, b) <= 0
 func `==`*(a, b: Locator): bool = cmp(a, b) == 0
-func low*(_: typedesc[Locator]): Locator = Locator(@[uint64.low])
-func high*(_: typedesc[Locator]): Locator = Locator(@[uint64.high])
+func low*(_: typedesc[Locator]): Locator = Locator(path: @[uint64.low])
+func high*(_: typedesc[Locator]): Locator = Locator(path: @[uint64.high])
 
 func `$`*(self: Locator): string =
   result = "Loc("
-  for i, val in self.asBase.pairs:
+  for i, val in self.path.pairs:
     if i > 0:
       result.add ", "
     result.add $val
@@ -161,26 +167,26 @@ func `$`*(self: Locator): string =
 proc between*(a, b: Locator): Locator =
   assert a < b
   for i in 0..int.high:
-    let lhs: uint64 = if i < a.len: a.asBase[i] else: uint64.low
-    let rhs: uint64 = if i < b.len: b.asBase[i] else: uint64.high
-    if rhs < lhs:
-      echo "todo: use saturating sub: ", lhs, " >= ", rhs
-    assert rhs >= lhs, "todo: use saturating sub"
-    let mid = lhs + ((rhs - lhs) shr 16) # Zed uses 48. Try different numbers once there are benchmarks
-    result.asBase.add mid
+    let lhs: uint64 = if i < a.len: a.path[i] else: uint64.low
+    let rhs: uint64 = if i < b.len: b.path[i] else: uint64.high
+    # if rhs < lhs:
+    #   echo "todo: use saturating sub: ", lhs, " >= ", rhs
+    # assert rhs >= lhs, "todo: use saturating sub"
+    let mid = lhs + (saturatingSub(rhs, lhs) shr 48) # Zed uses 48. Try different numbers once there are benchmarks
+    result.path.add mid
     if mid > lhs:
       break
 
   assert result > a
   assert result < b
 
-assert Locator(@[0.uint64]) < Locator(@[1.uint64])
-assert not (Locator(@[1.uint64]) < Locator(@[0.uint64]))
-assert Locator(@[0.uint64]) <= Locator(@[0.uint64])
-assert Locator(@[0.uint64]) <= Locator(@[0.uint64, 1.uint64])
-assert Locator(@[0.uint64]) < Locator(@[0.uint64, 1.uint64])
-assert Locator(@[0.uint64]) < Locator(@[0.uint64, 1.uint64])
-assert not (Locator(@[1.uint64]) < Locator(@[0.uint64, 1.uint64]))
-assert Locator(@[1.uint64]) < Locator(@[1.uint64, 1.uint64])
+assert Locator(path: @[0.uint64]) < Locator(path: @[1.uint64])
+assert not (Locator(path: @[1.uint64]) < Locator(path: @[0.uint64]))
+assert Locator(path: @[0.uint64]) <= Locator(path: @[0.uint64])
+assert Locator(path: @[0.uint64]) <= Locator(path: @[0.uint64, 1.uint64])
+assert Locator(path: @[0.uint64]) < Locator(path: @[0.uint64, 1.uint64])
+assert Locator(path: @[0.uint64]) < Locator(path: @[0.uint64, 1.uint64])
+assert not (Locator(path: @[1.uint64]) < Locator(path: @[0.uint64, 1.uint64]))
+assert Locator(path: @[1.uint64]) < Locator(path: @[1.uint64, 1.uint64])
 
 

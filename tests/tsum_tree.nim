@@ -13,13 +13,13 @@ template customTest(name: string, body): untyped =
       body
 
 customTest "seek end":
-  var a = SumTree[int].new(@[1, 2])
+  var a = SumTree[int].new(@[1, 2], ())
   var c1 = a.initCursor
   check not c1.seekForward(End[tuple[]](), Right, ())
   check c1.didSeek
   check c1.atEnd
 
-  a = SumTree[int].new(@[1, 2, 3, 4, 5])
+  a = SumTree[int].new(@[1, 2, 3, 4, 5], ())
   c1 = a.initCursor
   check not c1.seekForward(End[tuple[]](), Right, ())
   check c1.didSeek
@@ -32,7 +32,7 @@ customTest "prev/next leaf":
   check c1.nextLeaf.isNone
 
   # One leaf
-  a = SumTree[int].new(@[1, 2])
+  a = SumTree[int].new(@[1, 2], ())
   c1 = a.initCursor
   check a.isLeaf
   check c1.prevLeaf.isNone
@@ -43,7 +43,7 @@ customTest "prev/next leaf":
   check c1.nextLeaf.isNone
 
   # One internal, multiple leafs
-  a = SumTree[int].new(@[1, 2, 3])
+  a = SumTree[int].new(@[1, 2, 3], ())
   c1 = a.initCursor
 
   when treeBase == 2:
@@ -71,7 +71,7 @@ customTest "prev/next leaf":
 
 customTest "prev/next item":
   # One leaf
-  var a = SumTree[int].new(@[1, 2])
+  var a = SumTree[int].new(@[1, 2], ())
   var c1 = a.initCursor
 
   check c1.nextItem.mapIt(it[]) == 1.some
@@ -92,7 +92,7 @@ customTest "prev/next item":
   check c1.nextItem.isNone
 
   # One internal, multiple leafs
-  a = SumTree[int].new(@[1, 2, 3])
+  a = SumTree[int].new(@[1, 2, 3], ())
   c1 = a.initCursor
 
   check c1.nextItem.mapIt(it[]) == 1.some
@@ -119,7 +119,7 @@ customTest "prev/next item":
 
 customTest "prev":
   # One leaf
-  var a = SumTree[int].new(@[1, 2])
+  var a = SumTree[int].new(@[1, 2], ())
   var c1 = a.initCursor
 
   check c1.nextItem.mapIt(it[]) == 1.some
@@ -140,7 +140,7 @@ customTest "prev":
   check c1.nextItem.mapIt(it[]) == 1.some
 
   # One internal, multiple leafs
-  a = SumTree[int].new(@[1, 2, 3])
+  a = SumTree[int].new(@[1, 2, 3], ())
   c1 = a.initCursor
 
   check c1.nextItem.mapIt(it[]) == 1.some
@@ -178,8 +178,8 @@ proc testAppend(iterations: int, singleOwner: bool, base: int, balance: int) =
 
     let res = numbers1 & numbers2
 
-    var a = SumTree[int].new(numbers1)
-    var b = SumTree[int].new(numbers2)
+    var a = SumTree[int].new(numbers1, ())
+    var b = SumTree[int].new(numbers2, ())
 
     var c: SumTree[int]
     if not singleOwner:
@@ -206,7 +206,7 @@ proc testAdd(iterations: int, singleOwner: bool) =
     var a = SumTree[int].new()
 
     for i in 1..iterations:
-      var b = SumTree[int].new(numbers)
+      var b = SumTree[int].new(numbers, ())
       var c: SumTree[int]
       if not singleOwner:
         c = a.clone()
@@ -251,7 +251,7 @@ proc testN(iterations: int) =
     for i in 1..iterations:
       numbers.add i
 
-      a = SumTree[int].new(numbers)
+      a = SumTree[int].new(numbers, ())
       check a.first.mapIt(it[]) == numbers[0].some
       check a.last.mapIt(it[]) == numbers[numbers.high].some
 
@@ -259,7 +259,7 @@ proc testN(iterations: int) =
     defer:
       assertNoLeaks()
 
-    let tree = SumTree[int].new(@[])
+    let tree = SumTree[int].new(@[], ())
     check tree.isLeaf
     check tree.height == 0
     check tree.summary == TestSummary.default
@@ -278,7 +278,7 @@ proc testN(iterations: int) =
     for i in 1..iterations:
       numbers.add i
 
-      let tree = SumTree[int].new(numbers)
+      let tree = SumTree[int].new(numbers, ())
       check tree.summary == TestSummary(count: i.Count, max: i.Max)
       check tree.toSeq(()) == numbers
 
@@ -302,7 +302,7 @@ proc testN(iterations: int) =
     for i in 1..iterations:
       numbers.add i
 
-      var a = SumTree[int].new(numbers)
+      var a = SumTree[int].new(numbers, ())
       var b = SumTree[int].new()
 
       a.append(b, ())
@@ -318,7 +318,7 @@ proc testN(iterations: int) =
       numbers.add i
 
       var a = SumTree[int].new()
-      var b = SumTree[int].new(numbers)
+      var b = SumTree[int].new(numbers, ())
 
       a.append(b, ())
 
@@ -363,7 +363,7 @@ proc testN(iterations: int) =
       check c.startPos == TestSummary.default
 
   customTest "Cursor small tree C=" & $treeBase:
-    var b = SumTree[int].new(@[2, 5])
+    var b = SumTree[int].new(@[2, 5], ())
     var c = b.initCursor (Count, Max)
 
     check not c.didSeek
@@ -393,7 +393,7 @@ proc testN(iterations: int) =
 
   customTest "Cursor medium tree C=" & $treeBase:
     let numbers = @[2, 16, 5, 7, 9, 13, 4, 6, 1, 67, 54, 8, 43, 3]
-    var b = SumTree[int].new(numbers)
+    var b = SumTree[int].new(numbers, ())
     var c = b.initCursor (Count, Max)
 
     check not c.didSeek
@@ -424,7 +424,7 @@ proc testN(iterations: int) =
     for i in 1..iterations:
       numbers.add i
 
-      var b = SumTree[int].new(numbers)
+      var b = SumTree[int].new(numbers, ())
       var c = b.initCursor TestSummary
 
       check not c.didSeek
@@ -455,7 +455,7 @@ proc testN(iterations: int) =
     for i in 1..iterations:
       numbers.add i
 
-      var a = SumTree[int].new(numbers)
+      var a = SumTree[int].new(numbers, ())
       var c1 = a.initCursor TestSummary
 
       var m = 0
@@ -472,7 +472,7 @@ proc testN(iterations: int) =
   customTest "Cursor summary small incremental C=" & $treeBase:
     var numbers = @[2, 3, 1, 5, 4, 6]
 
-    var a = SumTree[int].new(numbers)
+    var a = SumTree[int].new(numbers, ())
 
     var c1 = a.initCursor (Count, Max)
     check c1.summary((Count, Max), 0.Count, Right, ()) == (0.Count, 0.Max)
@@ -499,7 +499,7 @@ proc testN(iterations: int) =
   customTest "Cursor summary small reset C=" & $treeBase:
     var numbers = @[2, 3, 1, 5, 4, 6]
 
-    var a = SumTree[int].new(numbers)
+    var a = SumTree[int].new(numbers, ())
 
     var c1 = a.initCursor (Count, Max)
     check c1.summary((Count, Max), 0.Count, Right, ()) == (0.Count, 0.Max)
@@ -540,7 +540,7 @@ proc testN(iterations: int) =
     for i in 1..iterations:
       numbers.add i
 
-      var a = SumTree[int].new(numbers)
+      var a = SumTree[int].new(numbers, ())
       var c1 = a.initCursor (Count, Max)
 
       var m = 0
@@ -565,7 +565,7 @@ proc testN(iterations: int) =
       var b = c.suffix(())
       check b.toSeq(()) == newSeq[int]()
 
-      a = SumTree[int].new(@[1, 2])
+      a = SumTree[int].new(@[1, 2], ())
       c = a.initCursor Count
 
       b = c.suffix(())
@@ -579,7 +579,7 @@ proc testN(iterations: int) =
         for i in 1..100:
           i
 
-      a = SumTree[int].new(numbers)
+      a = SumTree[int].new(numbers, ())
       c = a.initCursor Count
 
       for windowSize in 0..numbers.len:

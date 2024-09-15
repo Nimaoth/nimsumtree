@@ -2,6 +2,7 @@ import std/[strutils, sequtils, strformat, unittest, random, math, sets, monotim
 
 import nimsumtree/[buffer, rope, clock]
 
+var debugLog = false
 var debugFuzz = false
 var logTimes = false
 

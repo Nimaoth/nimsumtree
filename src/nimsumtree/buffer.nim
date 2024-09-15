@@ -721,7 +721,7 @@ func isVisible(self: Fragment, undoMap: UndoMap): bool =
 
   return true
 
-proc add(self: var RopeBuilder, doc: Buffer, len: int, wasVisible: bool, isVisible: bool) =
+proc add(self: var RopeBuilder, len: int, wasVisible: bool, isVisible: bool) =
   let text: Rope = if wasVisible:
     self.oldVisibleCursor.slice(self.oldVisibleCursor.offset + len)
   else:
@@ -732,15 +732,15 @@ proc add(self: var RopeBuilder, doc: Buffer, len: int, wasVisible: bool, isVisib
   else:
     self.newDeleted.add text
 
-proc add(self: var RopeBuilder, doc: Buffer, fragment: Fragment, wasVisible: bool) =
-  self.add(doc, fragment.len, wasVisible, fragment.visible)
+proc add(self: var RopeBuilder, fragment: Fragment, wasVisible: bool) =
+  self.add(fragment.len, wasVisible, fragment.visible)
 
 proc add(self: var RopeBuilder, content: string) =
   self.newVisible.add content
 
-proc add(self: var RopeBuilder, doc: Buffer, len: FragmentTextSummary) =
-  self.add(doc, len.visible, true, true)
-  self.add(doc, len.deleted, false, false)
+proc add(self: var RopeBuilder, len: FragmentTextSummary) =
+  self.add(len.visible, true, true)
+  self.add(len.deleted, false, false)
 
 proc finish(self: var RopeBuilder): (Rope, Rope) =
   self.newVisible.add(self.oldVisibleCursor.suffix())
@@ -755,7 +755,7 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
     let cx = edit.version.some
     var oldFragments = self.snapshot.fragments.initCursor[:Fragment, tuple[versionedFullOffset: VersionedFullOffset, offset: int]]((VersionedFullOffset.default, 0))
     var newFragments = oldFragments.slice(edit.ranges[editIndex].a.some.VersionedFullOffset, Bias.Left, cx)
-    ropeBuilder.add(self, newFragments.summary().text)
+    ropeBuilder.add(newFragments.summary().text)
 
     var fragmentStart = oldFragments.startPos().versionedFullOffset.fullOffset()
     var insertionOffset = 0
@@ -771,13 +771,13 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
           suffix.len = fragmentEnd.int - fragmentStart.int
           suffix.insertionOffset += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
           newInsertions.add(InsertionFragment.insertNew(suffix))
-          ropeBuilder.add(self, suffix, suffix.visible)
+          ropeBuilder.add(suffix, suffix.visible)
           newFragments.add(suffix, ())
 
         oldFragments.next(cx)
 
       let suffix = oldFragments.suffix(cx)
-      ropeBuilder.add(self, suffix.summary().text)
+      ropeBuilder.add(suffix.summary().text)
       newFragments.append(suffix, ())
 
       (self.snapshot.visibleText, self.snapshot.deletedText) = ropeBuilder.finish()
@@ -804,13 +804,13 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
               suffix.len = fragmentEnd.int - fragmentStart.int
               suffix.insertionOffset += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
               newInsertions.add(InsertionFragment.insertNew(suffix))
-              ropeBuilder.add(self, suffix, suffix.visible)
+              ropeBuilder.add(suffix, suffix.visible)
               newFragments.add(suffix, ())
 
             oldFragments.next(cx)
 
           let slice = oldFragments.slice(range.a.some.VersionedFullOffset, Bias.Left, cx)
-          ropeBuilder.add(self, slice.summary().text)
+          ropeBuilder.add(slice.summary().text)
           newFragments.append(slice, ())
           fragmentStart = oldFragments.startPos().versionedFullOffset.fullOffset
 
@@ -820,14 +820,14 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
           prefix.len = fragmentEnd.int - fragmentStart.int
           prefix.insertionOffset += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
           newInsertions.add(InsertionFragment.insertNew(prefix))
-          ropeBuilder.add(self, prefix, prefix.visible)
+          ropeBuilder.add(prefix, prefix.visible)
           newFragments.add(prefix, ())
           oldFragments.next(cx)
           fragmentStart = oldFragments.startPos().versionedFullOffset.fullOffset
 
         while (let fragment = oldFragments.item; fragment.isSome):
           if fragmentStart == range.a and fragment.get.timestamp > edit.timestamp:
-            ropeBuilder.add(self, fragment.get[], fragment.get[].visible)
+            ropeBuilder.add(fragment.get[], fragment.get[].visible)
             newFragments.add(fragment.get[].clone(), ())
             oldFragments.next(cx)
           else:
@@ -839,7 +839,7 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
           prefix.insertionOffset += fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int
           prefix.loc = between(newFragments.summary.maxId, prefix.loc)
           newInsertions.add(InsertionFragment.insertNew(prefix))
-          ropeBuilder.add(self, prefix, prefix.visible)
+          ropeBuilder.add(prefix, prefix.visible)
           newFragments.add(prefix, ())
           fragmentStart = range.a
 
@@ -878,7 +878,7 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
               let newStart = newFragments.summary().text.visible.uint32
               patch.add initEdit(oldStart...(oldStart + intersection.len.uint32), newStart...newStart)
             newInsertions.add(InsertionFragment.insertNew(intersection))
-            ropeBuilder.add(self, intersection, fragment.visible)
+            ropeBuilder.add(intersection, fragment.visible)
             newFragments.add(intersection, ())
             fragmentStart = intersectionEnd
 
@@ -954,7 +954,7 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
 
     var oldFragments = self.snapshot.fragments.initCursor(FragmentTextSummary)
     var newFragments = oldFragments.slice(edits[opIndex].range.a, Bias.Right, ())
-    ropeBuilder.add(self, newFragments.summary().text)
+    ropeBuilder.add(newFragments.summary().text)
 
     var fragmentStart = oldFragments.startPos().visible
 
@@ -970,13 +970,13 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
           suffix.len = fragmentEnd - fragmentStart
           suffix.insertionOffset += fragmentStart - oldFragments.startPos().visible
           newInsertions.add(InsertionFragment.insertNew(suffix))
-          ropeBuilder.add(self, suffix, suffix.visible)
+          ropeBuilder.add(suffix, suffix.visible)
           newFragments.add(suffix, ())
 
         oldFragments.next(())
 
       let suffix = oldFragments.suffix(())
-      ropeBuilder.add(self, suffix.summary().text)
+      ropeBuilder.add(suffix.summary().text)
       newFragments.append(suffix, ())
 
       (self.snapshot.visibleText, self.snapshot.deletedText) = ropeBuilder.finish()
@@ -1002,13 +1002,13 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
               suffix.len = fragmentEnd - fragmentStart
               suffix.insertionOffset += fragmentStart - oldFragments.startPos().visible
               newInsertions.add(InsertionFragment.insertNew(suffix))
-              ropeBuilder.add(self, suffix, suffix.visible)
+              ropeBuilder.add(suffix, suffix.visible)
               newFragments.add(suffix, ())
 
             oldFragments.next(())
 
           let slice = oldFragments.slice(edit.range.a, Bias.Right, ())
-          ropeBuilder.add(self, slice.summary().text)
+          ropeBuilder.add(slice.summary().text)
           newFragments.append(slice, ())
 
           fragmentStart = oldFragments.startPos().visible
@@ -1022,7 +1022,7 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
           prefix.insertionOffset += fragmentStart - oldFragments.startPos().visible
           prefix.loc = between(newFragments.summary.maxId, prefix.loc)
           newInsertions.add(InsertionFragment.insertNew(prefix))
-          ropeBuilder.add(self, prefix, prefix.visible)
+          ropeBuilder.add(prefix, prefix.visible)
           newFragments.add(prefix, ())
           fragmentStart = edit.range.a
 
@@ -1058,7 +1058,7 @@ proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], tex
               insertionSlices.add intersection.insertionSlice
 
             newInsertions.add(InsertionFragment.insertNew(intersection))
-            ropeBuilder.add(self, intersection, fragment.visible)
+            ropeBuilder.add(intersection, fragment.visible)
             newFragments.add(intersection, ())
             fragmentStart = intersectionEnd
 
@@ -1119,7 +1119,7 @@ proc applyUndo*(self: var Buffer, undo: UndoOperation): bool =
 
   for fragmentId in self.fragmentIdsForEdits(editIds):
     let precedingFragments = oldFragments.slice(fragmentId.some, Left, ())
-    newRopes.add(self, precedingFragments.summary.text)
+    newRopes.add(precedingFragments.summary.text)
     newFragments.append(precedingFragments, ())
 
     if oldFragments.item.isSome:
@@ -1136,12 +1136,12 @@ proc applyUndo*(self: var Buffer, undo: UndoOperation): bool =
       elif not fragmentWasVisible and fragment.visible:
         patch.add initEdit(oldStart.uint32...oldStart.uint32, newStart.uint32...(newStart.uint32 + fragment.len.uint32))
 
-      newRopes.add(self, fragment, fragmentWasVisible)
+      newRopes.add(fragment, fragmentWasVisible)
       newFragments.add(fragment, ())
       oldFragments.next(())
 
   let suffix = oldFragments.suffix(())
-  newRopes.add(self, suffix.summary.text)
+  newRopes.add(suffix.summary.text)
   newFragments.append(suffix, ())
 
   let (visibleText, deletedText) = newRopes.finish()
@@ -1275,7 +1275,7 @@ proc dump*(self: Buffer): string =
   result.add &"'{self.snapshot.visibleText}' | '{self.snapshot.deletedText}'\n"
   let fragments = self.snapshot.fragments.toSeq(())
   for i, item in fragments:
-    ropeBuilder.add(self, item, item.visible)
+    ropeBuilder.add(item, item.visible)
 
     if true or i == fragments.high or fragments[i + 1].timestamp != item.timestamp or fragments[i + 1].visible != item.visible:
       result.add &"[{startFullOffset}|{startVisibleOffset}] {item.timestamp}, visible: {item.visible}, len: {item.len}, {item.insertionOffset}..<{item.insertionOffset+item.len}, '{ropeBuilder.newVisible}-{ropeBuilder.newDeleted}'   | {item}\n"

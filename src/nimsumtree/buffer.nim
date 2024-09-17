@@ -320,10 +320,12 @@ func `$`*(self: seq[Fragment]): string = "Is(\n" & self.mapIt($it).join("\n").in
 func contentString*(self: Buffer): string = $self.snapshot.visibleText
 func contentLength*(self: Buffer): int = self.snapshot.visibleText.bytes
 proc applyUndo*(self: var Buffer, undo: UndoOperation): bool
-func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor): Option[D]
+func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor, resolveDeleted: bool = true): Option[D]
 
 func len*(self: BufferSnapshot): int = self.visibleText.bytes
 func ownVersion*(self: BufferSnapshot): SeqNumber = self.version[self.replicaId]
+func version*(self: Buffer): lent Global = self.snapshot.version
+func ownVersion*(self: Buffer): SeqNumber = self.snapshot.ownVersion
 
 func toOffset*(offset: int, snapshot: BufferSnapshot): int = offset
 func toOffset*(point: Point, snapshot: BufferSnapshot): int = snapshot.visibleText.pointToOffset(point)
@@ -380,7 +382,7 @@ func textSummaryForRange[O](self: BufferSnapshot, D: typedesc, range: Range[O]):
   var cursor = self.visibleText.cursor(range.a.toOffset(self))
   cursor.summary(D, range.b.toOffset(self))
 
-func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor): Option[D] =
+func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor, resolveDeleted: bool = true): Option[D] =
   if anchor == Anchor.low:
     return D.default.some
   if anchor == Anchor.high:
@@ -406,6 +408,9 @@ func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor): Option
     var fragmentOffset = fragmentCursor.startPos[1]
     if fragment[].visible:
       fragmentOffset += anchor.offset - insertion.splitOffset
+    elif not resolveDeleted:
+      return D.none
+
     return self.textSummaryForRange(D, 0...fragmentOffset).some
 
   return D.none
@@ -413,8 +418,8 @@ func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor): Option
 func summary*(self: Anchor, D: typedesc, snapshot: BufferSnapshot): D =
   return snapshot.summaryForAnchor(D, self).get
 
-func summaryOpt*(self: Anchor, D: typedesc, snapshot: BufferSnapshot): Option[D] =
-  return snapshot.summaryForAnchor(D, self)
+func summaryOpt*(self: Anchor, D: typedesc, snapshot: BufferSnapshot, resolveDeleted: bool = true): Option[D] =
+  return snapshot.summaryForAnchor(D, self, resolveDeleted)
 
 func anchorAtOffset(self: BufferSnapshot, offset: int, bias: Bias): Anchor =
   if bias == Left and offset == 0:
@@ -1300,5 +1305,5 @@ func items*(self: Buffer): seq[Fragment] = self.snapshot.fragments.toSeq(()).map
   x.loc = Locator.low
   x)
 
-func snapshot*(self: Buffer): BufferSnapshot = self.snapshot.clone()
+func snapshot*(self: Buffer): lent BufferSnapshot = self.snapshot
 func visibleText*(self: Buffer): lent Rope = self.snapshot.visibleText

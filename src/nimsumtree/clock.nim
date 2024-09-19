@@ -55,6 +55,8 @@ func `[]`*(self: Global, replicaId: ReplicaId): SeqNumber =
   else:
     0
 
+func timestamp*(self: Global, replicaId: ReplicaId): Lamport = Lamport(replicaId: replicaId, value: self[replicaId])
+
 iterator timestamps*(self: Global): Lamport =
   type Seq = seq[uint32]
   for replicaId, value in self.Seq:

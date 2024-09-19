@@ -18,7 +18,7 @@ suite "tests":
   proc initBuffers(initialText: string) =
     when defined(iter1) or defined(iter2) or defined(iter3):
       doc1 = initBuffer(0.ReplicaId)
-      discard doc1.insertText(0, initialText)
+      discard doc1.edit([(0..<0, initialText)])
     else:
       doc1 = initBuffer(0.ReplicaId, initialText)
     doc2 = doc1.clone(1.ReplicaId)
@@ -41,32 +41,32 @@ suite "tests":
       if debugLog: echo "  doc2: '", doc2.contentString, "': ", doc2
 
   template insert1(pos1, text1: untyped): untyped =
-    ops1.add doc1.insertText(pos1, text1)
+    ops1.add doc1.edit([(pos1..<pos1, text1)])
     if debugLog: echo "  ops1: ", ops1.prettyIt
     if debugLog: echo "  doc1: ", doc1
 
   template insert2(pos2, text2: untyped): untyped =
-    ops2.add doc2.insertText(pos2, text2)
+    ops2.add doc2.edit([(pos2..<pos2, text2)])
     if debugLog: echo "  ops2: ", ops2.prettyIt
     if debugLog: echo "  doc2: ", doc2
 
   template delete1(r: Slice[int]): untyped =
-    ops1.add doc1.delete(r)
+    ops1.add doc1.edit([(r, "")])
     if debugLog: echo "  ops1: ", ops1.prettyIt
     if debugLog: echo "  doc1: ", doc1
 
   template delete2(r: Slice[int]): untyped =
-    ops2.add doc2.delete(r)
+    ops2.add doc2.edit([(r, "")])
     if debugLog: echo "  ops2: ", ops2.prettyIt
     if debugLog: echo "  doc2: ", doc2
 
   template deleteRange1(r: Slice[int]): untyped =
-    ops1.add doc1.deleteRange(r)
+    ops1.add doc1.edit([(r, "")])
     if debugLog: echo "  ops1: ", ops1.prettyIt
     if debugLog: echo "  doc1: ", doc1
 
   template deleteRange2(r: Slice[int]): untyped =
-    ops2.add doc2.deleteRange(r)
+    ops2.add doc2.edit([(r, "")])
     if debugLog: echo "  ops2: ", ops2.prettyIt
     if debugLog: echo "  doc2: ", doc2
 
@@ -90,31 +90,31 @@ suite "tests":
   test "undo":
     initBuffers("In 1968,")
 
-    let op11 = doc1.insertText(3, "December of ")
-    let op12 = doc2.insertText(8, " Douglas Engelbart")
+    let op11 = doc1.edit([(3..<3, "December of ")])
+    let op12 = doc2.edit([(8..<8, " Douglas Engelbart")])
 
     check doc1.contentString == "In December of 1968,"
     check doc2.contentString == "In 1968, Douglas Engelbart"
 
-    discard doc1.applyRemote(op12)
-    discard doc2.applyRemote(op11)
+    discard doc1.applyRemote(@[op12])
+    discard doc2.applyRemote(@[op11])
 
     check doc1.contentString == "In December of 1968, Douglas Engelbart"
     check doc2.contentString == "In December of 1968, Douglas Engelbart"
 
-    let op21 = doc1.insertText(29, "C. ")
-    let op22 = doc2.insertText(38, " demonstrated")
+    let op21 = doc1.edit([(29..<29, "C. ")])
+    let op22 = doc2.edit([(38..<38, " demonstrated")])
 
     check doc1.contentString == "In December of 1968, Douglas C. Engelbart"
     check doc2.contentString == "In December of 1968, Douglas Engelbart demonstrated"
 
-    discard doc1.applyRemote(op22)
-    discard doc2.applyRemote(op21)
+    discard doc1.applyRemote(@[op22])
+    discard doc2.applyRemote(@[op21])
 
     check doc1.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
     check doc2.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
 
-    let undo1 = doc1.undo(op21[0].edit.timestamp)
+    let undo1 = doc1.undo(op21.edit.timestamp)
 
     check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
     check doc2.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
@@ -124,7 +124,7 @@ suite "tests":
     check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
     check doc2.contentString == "In December of 1968, Douglas Engelbart demonstrated"
 
-    let undo2 = doc2.undo(op12[0].edit.timestamp)
+    let undo2 = doc2.undo(op12.edit.timestamp)
 
     check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
     check doc2.contentString == "In December of 1968, demonstrated"
@@ -134,7 +134,7 @@ suite "tests":
     check doc1.contentString == "In December of 1968, demonstrated"
     check doc2.contentString == "In December of 1968, demonstrated"
 
-    let undo3 = doc2.undo(op21[0].edit.timestamp)
+    let undo3 = doc2.undo(op21.edit.timestamp)
 
     check doc1.contentString == "In December of 1968, demonstrated"
     check doc2.contentString == "In December of 1968,C.  demonstrated"

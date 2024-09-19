@@ -97,6 +97,10 @@ type
     didSeek: bool
     atEnd: bool
 
+  FilterCursor*[I; D] = object
+    cursor: Cursor[I, D]
+    filterNode: proc(summary: I.summaryType): bool {.noSideEffect.}
+
   Stats* = object
     height: int
     internal: int
@@ -841,6 +845,10 @@ func initCursor*[I](self {.byref.}: SumTree[I]): Cursor[I, tuple[]] =
   result.position = ()
   result.atEnd = self.root.isEmpty
 
+func filter*[I, D](self: sink Cursor[I, D], filter: proc(summary: I.summaryType): bool {.noSideEffect.}): FilterCursor[I, D] =
+  result.cursor = self
+  result.filterNode = filter
+
 func clone*[I, D](a {.byref.}: Cursor[I, D]): Cursor[I, D] =
   result.node = a.node.clone()
   result.stack = a.stack
@@ -1179,9 +1187,13 @@ func itemSummary*[I, D](self: Cursor[I, D]): Option[I.summaryType] =
 
   return I.summaryType.none
 
+func itemSummary*[I, D](self: FilterCursor[I, D]): Option[I.summaryType] = self.cursor.itemSummary
+
 func startPos*[I; D](self: Cursor[I, D]): lent D =
   ## Returns the aggregated value up until, but not including the current node
   self.position
+
+func startPos*[I; D](self: FilterCursor[I, D]): lent D = self.cursor.startPos
 
 func endPos*[I; D; C](self: Cursor[I, D], cx: C): D =
   ## Returns the aggregated value of the current node
@@ -1194,6 +1206,8 @@ func endPos*[I; D; C](self: Cursor[I, D], cx: C): D =
     result.addSummary(summary.get, cx)
   else:
     result = self.position.clone()
+
+func endPos*[I; D; C](self: FilterCursor[I, D], cx: C): D = self.cursor.endPos(cx)
 
 func nextLeaf*[I, D](self: Cursor[I, D]): Option[ptr ArcNode[I]] =
   if self.stack.len > 0:
@@ -1254,6 +1268,8 @@ func item*[I, D](self: Cursor[I, D]): Option[ptr I] =
 
   return (ptr I).none
 
+func item*[I, D](self: FilterCursor[I, D]): Option[ptr I] = self.cursor.item
+
 func itemClone*[I, D](self: Cursor[I, D]): Option[I] =
   # Returns the current item, or none if path the end
 
@@ -1271,6 +1287,12 @@ func itemClone*[I, D](self: Cursor[I, D]): Option[I] =
       assert false, "Stack top should contain leaf node"
 
   return I.none
+
+func next*[I, D, C](self: var FilterCursor[I, D], cx: C) =
+  self.cursor.nextInternal(self.filterNode, cx)
+
+func prev*[I, D, C](self: var FilterCursor[I, D], cx: C) =
+  self.cursor.prevInternal(self.filterNode, cx)
 
 func fromSummary*[S; C](D: typedesc, summary: S, cx: C): D =
   result = D.default

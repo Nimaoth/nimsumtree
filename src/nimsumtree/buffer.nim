@@ -27,7 +27,8 @@ type
 
   FullOffset* = distinct int
 
-  VersionedFullOffset* = distinct Option[FullOffset]
+  VersionedFullOffset* = object
+    value: Option[FullOffset] = some(FullOffset(0))
 
   UndoMapKey = object
     editId: Lamport
@@ -68,10 +69,9 @@ type
     offset*: int
     bias: Bias
 
-func fullOffset*(offset: VersionedFullOffset): FullOffset =
-  let self = (Option[FullOffset])(offset)
-  assert self.isSome
-  self.get
+func fullOffset*(self: VersionedFullOffset): FullOffset =
+  assert self.value.isSome
+  self.value.get
 
 # impl Item for Fragment
 func clone*(a: Fragment): Fragment = a
@@ -114,7 +114,6 @@ func `==`*(a, b: FullOffset): bool {.borrow.}
 func `+`*(a, b: FullOffset): FullOffset {.borrow.}
 func `-`*(a, b: FullOffset): FullOffset {.borrow.}
 func cmp*(a, b: FullOffset): int {.borrow.}
-func `$`*(self: VersionedFullOffset): string {.borrow.}
 
 func addSummary*[A, B, C](a: var (A, B), b: FragmentSummary, cx: C) =
   a[0].addSummary(b, cx)
@@ -219,31 +218,26 @@ func fromSummary*[C](_: typedesc[FragmentTextSummary], a: FragmentSummary, cx: C
 
 
 # impl Dimension for VersionedFullOffset
-func default*(_: typedesc[VersionedFullOffset]): VersionedFullOffset = 0.FullOffset.some.VersionedFullOffset
+func default*(_: typedesc[VersionedFullOffset]): VersionedFullOffset = VersionedFullOffset(value: 0.FullOffset.some)
 func clone*(a: VersionedFullOffset): VersionedFullOffset = a
 
-func addSummary*(a: var VersionedFullOffset, summary: FragmentSummary, cx: Option[Global]) =
-  let self = (Option[FullOffset])(a)
-  if self.isSome:
+func addSummary*(self: var VersionedFullOffset, summary: FragmentSummary, cx: Option[Global]) =
+  if self.value.isSome:
     let version {.cursor.} = cx.get
     if version.observedAll(summary.maxInsertionVersion):
-      # debugEcho &"addSummary: {a}, {summary}, {cx}: observed"
-      a = (self.get + FullOffset(summary.text.visible + summary.text.deleted)).some.VersionedFullOffset
+      self.value = (self.value.get + FullOffset(summary.text.visible + summary.text.deleted)).some
     elif version.observedAny(summary.minInsertionVersion):
-      # debugEcho &"addSummary: {a}, {summary}, {cx}: not observed"
-      a = FullOffset.none.VersionedFullOffset
+      self.value = FullOffset.none
 
 func fromSummary*[C](_: typedesc[VersionedFullOffset], a: FragmentSummary, cx: C): VersionedFullOffset =
-  result = 0.FullOffset.some.VersionedFullOffset
+  result = VersionedFullOffset(value: 0.FullOffset.some)
   result.addSummary(a, cx)
 
 # impl SeekTarget for VersionedFullOffset
 func cmp*[C](a: VersionedFullOffset, b: VersionedFullOffset, cx: C): int =
-  let a = (Option[FullOffset])(a)
-  let b = (Option[FullOffset])(b)
-  if a.isSome and b.isSome:
-    cmp(a.get, b.get)
-  elif a.isSome:
+  if a.value.isSome and b.value.isSome:
+    cmp(a.value.get, b.value.get)
+  elif a.value.isSome:
     -1
   else:
     assert false
@@ -295,6 +289,7 @@ type
     insertionSlices: Table[Lamport, seq[InsertionSlice]]
     undoStack*: seq[HistoryEntry]
     redoStack*: seq[HistoryEntry]
+    versions*: seq[Global]
 
   BufferSnapshot* = object
     replicaId*: ReplicaId
@@ -302,7 +297,7 @@ type
     deletedText*: Rope
     undoMap*: UndoMap
     fragments*: SumTree[Fragment]
-    insertions: SumTree[InsertionFragment]
+    insertions*: SumTree[InsertionFragment]
     version*: Global
 
   Buffer* = object
@@ -314,6 +309,7 @@ type
     patches*: seq[tuple[editId: Lamport, patch: Patch[uint32]]]
 
 proc edit*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]]): Operation
+func wasVisible(self: Fragment, version: Global, undoMap: UndoMap): bool
 
 func `$`*(self: Fragment): string = &"I({self.timestamp}:{self.loc}, {self.insertionOffset}, visible: {self.visible}, {self.len}, deletions: {self.deletions})"
 func `$`*(self: seq[Fragment]): string = "Is(\n" & self.mapIt($it).join("\n").indent(1, "  ") & "\n)"
@@ -330,6 +326,12 @@ func ownVersion*(self: Buffer): SeqNumber = self.snapshot.ownVersion
 func toOffset*(offset: int, snapshot: BufferSnapshot): int = offset
 func toOffset*(point: Point, snapshot: BufferSnapshot): int = snapshot.visibleText.pointToOffset(point)
 func toOffset*(anchor: Anchor, snapshot: BufferSnapshot): int = snapshot.summaryForAnchor(int, anchor).get
+func toOffset*[D](range: Range[D], snapshot: BufferSnapshot): int = range.a.toOffset(snapshot)...range.b.toOffset(snapshot)
+
+func toPoint*(offset: int, snapshot: BufferSnapshot): Point = snapshot.visibleText.offsetToPoint(offset)
+func toPoint*(point: Point, snapshot: BufferSnapshot): Point = point
+func toPoint*(anchor: Anchor, snapshot: BufferSnapshot): Point = snapshot.summaryForAnchor(Point, anchor).get
+func toPoint*[D](range: Range[D], snapshot: BufferSnapshot): Point = range.a.toPoint(snapshot)...range.b.toPoint(snapshot)
 
 func version*(op: Operation): Global =
   case op.kind
@@ -353,6 +355,42 @@ func `$`*(self: Buffer): string =
 
 func low*(_: typedesc[Anchor]): Anchor = Anchor(timestamp: Lamport.low, offset: 0, bias: Left)
 func high*(_: typedesc[Anchor]): Anchor = Anchor(timestamp: Lamport.high, offset: int.high, bias: Right)
+
+func ropeForVersion*(self: BufferSnapshot, version: Global): Rope =
+  proc filterFn(summary: FragmentSummary): bool = not version.observedAll(summary.maxVersion)
+  var cursor = self.fragments.initCursor(FragmentTextSummary).filter(filterFn)
+  cursor.next(())
+
+  var visibleCursor = self.visibleText.cursor()
+  var deletedCursor = self.deletedText.cursor()
+  var rope = Rope.new()
+
+  while cursor.item.isSome:
+    let fragment = cursor.item.get
+
+    if cursor.startPos.visible > visibleCursor.offset:
+      let text = visibleCursor.slice(cursor.startPos.visible)
+      rope.add(text)
+
+    if fragment[].wasVisible(version, self.undoMap):
+      if fragment[].visible:
+        let text = visibleCursor.slice(cursor.endPos(()).visible)
+        rope.add(text)
+      else:
+        deletedCursor.seekForward(cursor.startPos.deleted)
+        let text = deletedCursor.slice(cursor.endPos(()).deleted)
+        rope.add(text)
+
+    elif fragment[].visible:
+      visibleCursor.seekForward(cursor.endPos(()).visible)
+
+    cursor.next(())
+
+  if cursor.startPos.visible > visibleCursor.offset:
+    let text = visibleCursor.slice(cursor.startPos.visible)
+    rope.add(text)
+
+  return rope
 
 func fragmentIdForAnchor(self: BufferSnapshot, anchor: Anchor): Locator =
   if anchor == Anchor.low:
@@ -421,6 +459,14 @@ func summary*(self: Anchor, D: typedesc, snapshot: BufferSnapshot): D =
 func summaryOpt*(self: Anchor, D: typedesc, snapshot: BufferSnapshot, resolveDeleted: bool = true): Option[D] =
   return snapshot.summaryForAnchor(D, self, resolveDeleted)
 
+func summaryOpt*(self: Range[Anchor], D: typedesc, snapshot: BufferSnapshot, resolveDeleted: bool = true): Option[Range[D]] =
+  let a = snapshot.summaryForAnchor(D, self.a, resolveDeleted).getOr: return Range[D].none
+  let b = snapshot.summaryForAnchor(D, self.b, resolveDeleted).getOr: return Range[D].none
+  return some(a...b)
+
+func initAnchor*(timestamp: Lamport, offset: int, bias: Bias): Anchor =
+  Anchor(timestamp: timestamp, offset: offset, bias: bias)
+
 func anchorAtOffset(self: BufferSnapshot, offset: int, bias: Bias): Anchor =
   if bias == Left and offset == 0:
     Anchor.low
@@ -439,6 +485,9 @@ func anchorAtOffset(self: BufferSnapshot, offset: int, bias: Bias): Anchor =
 
 func anchorAt*[D](self: BufferSnapshot, position: D, bias: Bias): Anchor =
   self.anchorAtOffset(position.toOffset(self), bias)
+
+func anchorAt*[D](self: BufferSnapshot, position: Range[D], biasLeft: Bias, biasRight: Bias): Range[Anchor] =
+  self.anchorAtOffset(position.a.toOffset(self), biasLeft)...self.anchorAtOffset(position.b.toOffset(self), biasRight)
 
 func anchorBefore*[D](self: BufferSnapshot, position: D): Anchor =
   self.anchorAt(position, Left)
@@ -626,7 +675,7 @@ proc initBuffer*(replicaId: ReplicaId = 0.ReplicaId, content: string = ""): Buff
       visibleText: visibleText,
       deletedText: Rope.new(),
       undoMap: UndoMap.new(),
-      insertions: SumTree[InsertionFragment].new(),
+      insertions: insertions,
       version: version,
     ),
     history: history,
@@ -762,7 +811,7 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
 
     let cx = edit.version.some
     var oldFragments = self.snapshot.fragments.initCursor[:Fragment, tuple[versionedFullOffset: VersionedFullOffset, offset: int]]((VersionedFullOffset.default, 0))
-    var newFragments = oldFragments.slice(edit.ranges[editIndex].a.some.VersionedFullOffset, Bias.Left, cx)
+    var newFragments = oldFragments.slice(VersionedFullOffset(value: edit.ranges[editIndex].a.some), Bias.Left, cx)
     ropeBuilder.add(newFragments.summary().text)
 
     var fragmentStart = oldFragments.startPos().versionedFullOffset.fullOffset()
@@ -817,7 +866,7 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
 
             oldFragments.next(cx)
 
-          let slice = oldFragments.slice(range.a.some.VersionedFullOffset, Bias.Left, cx)
+          let slice = oldFragments.slice(VersionedFullOffset(value: range.a.some), Bias.Left, cx)
           ropeBuilder.add(slice.summary().text)
           newFragments.append(slice, ())
           fragmentStart = oldFragments.startPos().versionedFullOffset.fullOffset
@@ -945,10 +994,13 @@ proc applyRemote*(self: var Buffer, ops: openArray[Operation]): bool =
       self.deferredReplicas.incl(op.timestamp.replicaId)
       deferredOps.add(op)
 
+  defer:
+    self.history.versions.add self.snapshot.version
+
   self.deferredOps.add(deferredOps)
   return self.flushDeferredOps()
 
-proc applyLocal*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]], timestamp: Lamport): EditOperation =
+proc applyLocal(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]], timestamp: Lamport): EditOperation =
   result.timestamp = timestamp
   result.version = self.snapshot.version
   result.ranges = newSeqOfCap[Slice[FullOffset]](edits.len)
@@ -1113,7 +1165,7 @@ proc fragmentIdsForEdits(self: var Buffer, edits: openArray[Lamport]): seq[Locat
 
   return fragmentIds
 
-proc applyUndo*(self: var Buffer, undo: UndoOperation): bool =
+proc applyUndo(self: var Buffer, undo: UndoOperation): bool =
   self.snapshot.undoMap.insert(undo)
 
   var patch = Patch[uint32]()
@@ -1160,7 +1212,7 @@ proc applyUndo*(self: var Buffer, undo: UndoOperation): bool =
 
   return true
 
-proc undoOrRedo*(self: var Buffer, transaction: Transaction): Option[Operation] =
+proc undoOrRedo(self: var Buffer, transaction: Transaction): Option[Operation] =
   var counts = initTable[Lamport, uint32]()
   for editId in transaction.editIds:
     counts[editId] = self.snapshot.undoMap.undoCount(editId) + 1
@@ -1210,6 +1262,9 @@ proc endTransaction(self: var Buffer): Option[ptr HistoryEntry] =
   self.history.endTransaction()
 
 proc edit*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]]): Operation =
+  defer:
+    self.history.versions.add self.snapshot.version
+
   discard self.startTransaction()
   if self.timestamp.value == 0:
     discard self.timestamp.tick()
@@ -1222,6 +1277,9 @@ proc edit*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: str
   operation
 
 proc undo*(self: var Buffer, op: Lamport): Operation =
+  defer:
+    self.history.versions.add self.snapshot.version
+
   var counts = initTable[Lamport, uint32]()
   counts[op] = self.snapshot.undoMap.undoCount(op) + 1
 
@@ -1236,6 +1294,9 @@ proc undo*(self: var Buffer, op: Lamport): Operation =
   Operation(kind: Undo, undo: undo)
 
 proc redo*(self: var Buffer): Option[tuple[transactionId: TransactionId, op: Operation]] =
+  defer:
+    self.history.versions.add self.snapshot.version
+
   if self.history.redoStack.len > 0:
     let entry = self.history.redoStack.pop
     self.history.undoStack.add(entry)
@@ -1244,32 +1305,15 @@ proc redo*(self: var Buffer): Option[tuple[transactionId: TransactionId, op: Ope
       return (entry.transaction.id, op.get).some
 
 proc undo*(self: var Buffer): Option[tuple[transactionId: TransactionId, op: Operation]] =
+  defer:
+    self.history.versions.add self.snapshot.version
+
   if self.history.undoStack.len > 0:
     let entry = self.history.undoStack.pop
     self.history.redoStack.add(entry)
     let op = self.undoOrRedo(entry.transaction)
     if op.isSome:
       return (entry.transaction.id, op.get).some
-
-proc delete*(self: var Buffer, pos: Slice[int]): seq[Operation] =
-  assert pos.a >= 0
-  assert pos.a <= pos.b + 1
-  assert pos.b < self.snapshot.visibleText.bytes
-
-  result.add self.edit([(pos, "")])
-
-proc deleteRange*(self: var Buffer, pos: Slice[int]): seq[Operation] =
-  assert pos.a >= 0
-  assert pos.a <= pos.b
-  assert pos.b < self.snapshot.visibleText.bytes
-
-  result.add self.edit([(pos, "")])
-
-proc insertText*(self: var Buffer, pos: int, text: string): seq[Operation] =
-  if text.len == 0:
-    return
-
-  result.add self.edit([(pos..<pos, text)])
 
 proc dump*(self: Buffer): string =
   var startFullOffset = 0

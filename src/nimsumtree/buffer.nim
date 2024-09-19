@@ -281,7 +281,7 @@ type
     tree*: SumTree[UndoMapEntry]
 
   HistoryEntry = object
-    transaction: Transaction
+    transaction*: Transaction
 
   History* = object
     baseText*: Rope

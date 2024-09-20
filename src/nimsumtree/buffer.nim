@@ -27,6 +27,8 @@ type
 
   FullOffset* = distinct int
 
+  BufferId* = distinct range[1.uint64..uint64.high]
+
   VersionedFullOffset* = object
     value: Option[FullOffset] = some(FullOffset(0))
 
@@ -68,6 +70,7 @@ type
     timestamp*: Lamport
     offset*: int
     bias: Bias
+    bufferId*: Option[BufferId]
 
 func fullOffset*(self: VersionedFullOffset): FullOffset =
   assert self.value.isSome
@@ -114,6 +117,10 @@ func `==`*(a, b: FullOffset): bool {.borrow.}
 func `+`*(a, b: FullOffset): FullOffset {.borrow.}
 func `-`*(a, b: FullOffset): FullOffset {.borrow.}
 func cmp*(a, b: FullOffset): int {.borrow.}
+
+func `$`*(self: BufferId): string {.borrow.}
+func `==`*(a, b: BufferId): bool {.borrow.}
+func cmp*(a, b: BufferId): int {.borrow.}
 
 func addSummary*[A, B, C](a: var (A, B), b: FragmentSummary, cx: C) =
   a[0].addSummary(b, cx)
@@ -293,6 +300,7 @@ type
 
   BufferSnapshot* = object
     replicaId*: ReplicaId
+    remoteId*: BufferId
     visibleText*: Rope
     deletedText*: Rope
     undoMap*: UndoMap
@@ -320,8 +328,10 @@ func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor, resolve
 
 func len*(self: BufferSnapshot): int = self.visibleText.bytes
 func ownVersion*(self: BufferSnapshot): SeqNumber = self.version[self.replicaId]
+func remoteId*(self: BufferSnapshot): BufferId = self.remoteId
 func version*(self: Buffer): lent Global = self.snapshot.version
 func ownVersion*(self: Buffer): SeqNumber = self.snapshot.ownVersion
+func remoteId*(self: Buffer): BufferId = self.snapshot.remoteId
 
 func toOffset*(offset: int, snapshot: BufferSnapshot): int = offset
 func toOffset*(point: Point, snapshot: BufferSnapshot): int = snapshot.visibleText.pointToOffset(point)
@@ -467,6 +477,16 @@ func summaryOpt*(self: Range[Anchor], D: typedesc, snapshot: BufferSnapshot, res
 func initAnchor*(timestamp: Lamport, offset: int, bias: Bias): Anchor =
   Anchor(timestamp: timestamp, offset: offset, bias: bias)
 
+func isValid*(self: Anchor, buffer: BufferSnapshot): bool =
+  if self == Anchor.low or self == Anchor.high:
+    return true
+  if self.bufferId != buffer.remoteId.some:
+    return false
+  let fragmentId = buffer.fragmentIdForAnchor(self)
+  var cursor = buffer.fragments.initCursor (Option[Locator], int)
+  discard cursor.seek(fragmentId.some, Left, ())
+  return cursor.item.mapIt(it.visible).get(false)
+
 func anchorAtOffset(self: BufferSnapshot, offset: int, bias: Bias): Anchor =
   if bias == Left and offset == 0:
     Anchor.low
@@ -481,6 +501,7 @@ func anchorAtOffset(self: BufferSnapshot, offset: int, bias: Bias): Anchor =
       timestamp: fragment.timestamp,
       offset: fragment.insertionOffset + overshoot,
       bias: bias,
+      bufferId: self.remoteId.some,
     )
 
 func anchorAt*[D](self: BufferSnapshot, position: D, bias: Bias): Anchor =
@@ -496,7 +517,8 @@ func anchorAfter*[D](self: BufferSnapshot, position: D): Anchor =
   self.anchorAt(position, Right)
 
 func canResolve*(self: BufferSnapshot, anchor: Anchor): bool =
-  anchor == Anchor.low or anchor == Anchor.high or self.version.observed(anchor.timestamp)
+  anchor == Anchor.low or anchor == Anchor.high or
+    (anchor.bufferId == self.remoteId.some and self.version.observed(anchor.timestamp))
 
 func cmp*(a, b: Anchor, buffer: BufferSnapshot): int =
   let fragmentIdComparison = if a.timestamp == b.timestamp:
@@ -549,6 +571,113 @@ func add*[D](self: var Patch[D], edit: Edit[D]) =
       return
 
   self.edits.add edit
+
+func compose*[D](self: Patch[D], newEdits: openArray[Edit[D]]): Patch[D] =
+  var oldEditsIndex = 0
+  var newEditsIndex = 0
+  var oldStart = D.default
+  var newStart = D.default
+  var oldEdit = Edit[D]()
+  var newEdit = Edit[D]()
+  result = Patch[D]()
+
+  template hasOldEdit: bool = oldEditsIndex < self.edits.len
+  template hasNewEdit: bool = newEditsIndex < newEdits.len
+
+  template nextOldEdit(): untyped =
+    inc oldEditsIndex
+    if hasOldEdit():
+      oldEdit = self.edits[oldEditsIndex]
+
+  template nextNewEdit(): untyped =
+    inc newEditsIndex
+    if hasNewEdit():
+      newEdit = newEdits[newEditsIndex]
+
+  if hasOldEdit():
+    oldEdit = self.edits[oldEditsIndex]
+  if hasNewEdit():
+    newEdit = newEdits[newEditsIndex]
+
+  while true:
+    # Push the old edit if its new end is before the new edit's old start.
+    if hasOldEdit():
+      if not hasNewEdit() or oldEdit.new.b < newEdit.old.a:
+        let catchup = oldEdit.old.a - oldStart
+        oldStart += catchup
+        newStart += catchup
+        let oldEnd = oldStart + oldEdit.old.len
+        let newEnd = newStart + oldEdit.new.len
+        result.add(Edit[D](old: oldStart...oldEnd, new: newStart...newEnd))
+        oldStart = oldEnd
+        newStart = newEnd
+        nextOldEdit()
+        continue
+
+    # Push the new edit if its old end is before the old edit's new start.
+    if hasNewEdit():
+      if not hasOldEdit() or newEdit.old.b < oldEdit.new.a:
+        let catchup = newEdit.new.a - newStart
+        oldStart += catchup
+        newStart += catchup
+        let oldEnd = oldStart + newEdit.old.len
+        let newEnd = newStart + newEdit.new.len
+        result.add(Edit[D](old: oldStart...oldEnd, new: newStart...newEnd))
+        oldStart = oldEnd
+        newStart = newEnd
+        nextNewEdit()
+        continue
+
+    # If we still have edits by this point then they must intersect, so we compose them.
+    if hasOldEdit() and hasNewEdit():
+      if oldEdit.new.a < newEdit.old.a:
+        let catchup = oldEdit.old.a - oldStart
+        oldStart += catchup
+        newStart += catchup
+        let overshoot = newEdit.old.a - oldEdit.new.a
+        let oldEnd = min(oldStart + overshoot, oldEdit.old.b)
+        let newEnd = newStart + overshoot
+        result.add(Edit[D](old: oldStart...oldEnd, new: newStart...newEnd))
+        oldEdit.old.a = oldEnd
+        oldEdit.new.a += overshoot
+        oldStart = oldEnd
+        newStart = newEnd
+
+      else:
+        let catchup = newEdit.new.a - newStart
+        oldStart += catchup
+        newStart += catchup
+        let overshoot = oldEdit.new.a - newEdit.old.a
+        let oldEnd = oldStart + overshoot
+        let newEnd = min(newStart + overshoot, newEdit.new.b)
+        result.add(Edit[D](old: oldStart...oldEnd, new: newStart...newEnd))
+        newEdit.old.a += overshoot
+        newEdit.new.a = newEnd
+        oldStart = oldEnd
+        newStart = newEnd
+
+      if oldEdit.new.b > newEdit.old.b:
+        let oldEnd = oldStart + min(oldEdit.old.len, newEdit.old.len)
+        let newEnd = newStart + newEdit.new.len
+        result.add(Edit[D](old: oldStart...oldEnd, new: newStart...newEnd))
+        oldEdit.old.a = oldEnd
+        oldEdit.new.a = newEdit.old.b
+        oldStart = oldEnd
+        newStart = newEnd
+        nextNewEdit()
+
+      else:
+        let oldEnd = oldStart + oldEdit.old.len
+        let newEnd = newStart + min(oldEdit.new.len, newEdit.new.len)
+        result.add(Edit[D](old: oldStart...oldEnd, new: newStart...newEnd))
+        newEdit.old.a = oldEdit.new.b
+        newEdit.new.a = newEnd
+        oldStart = oldEnd
+        newStart = newEnd
+        nextOldEdit()
+
+    else:
+      break
 
 proc binarySearchBy[T, K](a: openArray[T], key: K,
                          cmp: proc (x: T, y: K): int {.closure.}): (bool, int) {.effectsOf: cmp.} =
@@ -641,7 +770,7 @@ proc initHistory*(baseText: sink Rope): History =
     baseText: baseText
   )
 
-proc initBuffer*(replicaId: ReplicaId = 0.ReplicaId, content: string = ""): Buffer =
+proc initBuffer*(replicaId: ReplicaId = 0.ReplicaId, content: string = "", remoteId: BufferId = 1.BufferId): Buffer =
   let history = initHistory(Rope.new(content))
 
   var fragments = SumTree[Fragment].new()
@@ -671,6 +800,7 @@ proc initBuffer*(replicaId: ReplicaId = 0.ReplicaId, content: string = ""): Buff
   result = Buffer(
     snapshot: BufferSnapshot(
       replicaId: replicaId,
+      remoteId: remoteId,
       fragments: fragments,
       visibleText: visibleText,
       deletedText: Rope.new(),

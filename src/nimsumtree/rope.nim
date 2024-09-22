@@ -2,6 +2,8 @@ import std/[strformat, os, strformat, options]
 import nimsumtree/[sumtree]
 import uni
 
+var ropeDebugLog* = true
+
 const ropeChunkBase {.intdefine.} = 0
 when ropeChunkBase > 0:
   const chunkBase* = ropeChunkBase
@@ -82,8 +84,11 @@ func `$`*(r: Chunk): string =
   result.add r.chars.join("")
   result.add "]"
 
-func init*(_: typedesc[Point], row: int, column: int): Point =
+func init*(_: typedesc[Point], row, column: int): Point =
   Point(row: row.uint32, column: column.uint32)
+
+func init*(_: typedesc[Point], row, column: uint32): Point =
+  Point(row: row, column: column)
 
 func clone*(a: TextSummary): TextSummary = a
 
@@ -331,6 +336,10 @@ func pointToOffset*(self: Chunk, target: Point): int =
 
     if r == '\n'.Rune:
       if point.row >= target.row:
+        # {.cast(noSideEffect).}:
+        #   if ropeDebugLog:
+        #     writeStackTrace()
+        #     debugEcho &"pointToOffset({target}) Target is beyond the end of a line with length {point.column}: '{self.chars}'"
         break
 
       point.row += 1
@@ -352,6 +361,10 @@ func pointToOffset*(self: Chunk, target: Point, bias: Bias): int =
 
     if r == '\n'.Rune:
       if point.row >= target.row:
+        # {.cast(noSideEffect).}:
+        #   if ropeDebugLog:
+        #     writeStackTrace()
+        #     debugEcho &"pointToOffset({target}, {bias}) Target is beyond the end of a line with length {point.column}: '{self.chars}'"
         break
 
       point.row += 1
@@ -482,6 +495,10 @@ func clone*(self: Rope): Rope =
 func checkInvariants*(self: Rope) =
   self.tree.checkInvariants()
 
+func len*(self: Rope): int =
+  ## Length of the rope in bytes
+  return self.tree.summary.bytes
+
 func bytes*(self: Rope): int =
   return self.tree.summary.bytes
 
@@ -608,8 +625,10 @@ func toRope*(value: string): Rope =
   Rope.new(value)
 
 func `$`*(r: Rope): string =
+  result = newStringOfCap(r.len)
   for chunk in r.tree.items(()):
-    result.add chunk.chars.join("")
+    for c in chunk.chars:
+      result.add c
 
 func add*(self: var Chunk, text: openArray[char]) =
   self.data.add text
@@ -720,6 +739,16 @@ func slice*(self: Rope, slice: Slice[int], bias: Bias = Bias.Left): Rope =
 func slice*(self: Rope, first, last: int, bias: Bias = Bias.Left): Rope =
   self.slice(first..<last, bias)
 
+func `[]`*(self: Rope, slice: Slice[int]): Rope =
+  var cursor = self.cursor(slice.a)
+  result = cursor.slice(succ(slice.b), Right)
+  result.checkInvariants()
+
+func `[]`*[D](self: Rope, slice: Slice[D]): Rope =
+  var cursor = self.cursorT(slice.a)
+  result = cursor.slice(succ(slice.b), Right)
+  result.checkInvariants()
+
 func sliceRows*(self: Rope, slice: Slice[int]): Rope =
   let startOffset = self.pointToOffset(Point.init(slice.a, 0))
   let endOffset = self.pointToOffset(Point.init(slice.b + 1, 0))
@@ -768,6 +797,7 @@ func cursorT*(self {.byref.}: Rope, D: typedesc): RopeCursorT[D] =
   result.rope = self.addr
   result.chunks = self.tree.initCursor((D, int))
   result.position = D.default
+  result.chunks.next(())
 
 func seekForward*(self: var RopeCursor, target: int) =
   assert target >= self.offset
@@ -942,6 +972,8 @@ func lineRuneLen*(self: Rope, line: int): Count =
 
 func summary*(self: Rope): TextSummary = self.tree.summary
 
+func init*(_: typedesc[TextSummary], x: Rope): TextSummary = x.tree.summary
+
 func slice*(self: var RopeCursor, target: int, bias: Bias = Left): Rope =
   ## Returns a new rope representing the text from the current position to the target position.
   ## If the `target` is not on a character boundary it is snapped to the next boundary depending on `bias`
@@ -1045,8 +1077,13 @@ func chunk*(self: var RopeCursor): Option[ptr Chunk] =
   self.chunks.item
 
 func reset*(self: var RopeCursor) =
-  self.chunks.reset
+  self.chunks.reset()
   self.offset = 0
+
+func reset*[D](self: var RopeCursorT[D]) =
+  self.chunks.reset()
+  self.offset = 0.some
+  self.position = D.default
 
 func chunkStartPos*(self: var RopeCursor): int =
   self.chunks.startPos
@@ -1084,6 +1121,12 @@ func offset*[D](self: RopeCursorT[D]): int =
 func position*[D](self: RopeCursorT[D]): D =
   self.position
 
+func splitLines*(self: Rope): seq[Rope] =
+  var c = self.cursorT(Point.init(0, 0))
+  for line in 0..<self.lines:
+    c.seekForward(Point.init(line, 0))
+    result.add(c.slice(Point.init(line.uint32, uint32.high)))
+
 iterator runes*[D](self: Rope, start: D): Rune =
   bind runeSize
   bind runeAt
@@ -1106,3 +1149,10 @@ iterator runes*[D](self: Rope, start: D): Rune =
 iterator runes*(self: Rope): Rune =
   for r in self.runes(0):
     yield r
+
+iterator iterateChunks*(self: Rope): lent Chunk =
+  var c = self.tree.initCursor(int)
+  c.next(())
+  while c.item.isSome:
+    yield c.item.get[]
+    c.next(())

@@ -330,9 +330,9 @@ func sum*[I, C](arr {.byref.}: Array[I, treeBase], cx: C): I =
     for i in 1..arr.high:
       result.addSummary(arr[i], cx)
 
-func summary*[I](node: Node[I]): I.summaryType = node.mSummary
-func summary*[I](node: ArcNode[I]): I.summaryType = node.get.summary
-func summary*[I](tree: SumTree[I]): I.summaryType = tree.root.summary
+func summary*[I](node: Node[I]): auto = node.mSummary
+func summary*[I](node: ArcNode[I]): auto = node.get.summary
+func summary*[I](tree: SumTree[I]): auto = tree.root.summary
 func extent*[I, C](tree: SumTree[I], D: typedesc, cx: C): D =
   result = D.default
   result.addSummary(tree.root.get.mSummary, cx)
@@ -866,6 +866,26 @@ func reset*(self: var Cursor) =
   self.stack.setLen 0
   self.position = typeof(self.position).default
 
+func itemSummary*[I, D](self: Cursor[I, D]): auto =
+  ## Returns the summary of the current item, or none if the cursor is past the end
+
+  self.assertDidSeek
+  if self.stack.len > 0:
+    let entry {.cursor.} = self.stack[self.stack.high]
+    let node {.cursor.} = entry.node.get
+    case node.kind
+    of Leaf:
+      if entry.index >= node.mSummaries.len:
+        return I.summaryType.none
+      else:
+        return node.mSummaries[entry.index].some
+    of Internal:
+      assert false, "Stack top should contain leaf node"
+
+  return I.summaryType.none
+
+func itemSummary*[I, D](self: FilterCursor[I, D]): auto = self.cursor.itemSummary
+
 func seekInternal[I; D; T; A; C](self: var Cursor[I, D], target: T, bias: Bias, aggregate: var A, cx: C): bool =
   mixin addSummary
 
@@ -1013,7 +1033,7 @@ func suffix*[I; D; C](self: var Cursor[I, D], cx: C): SumTree[I] =
   ## to the end. #todo: current node included?
   self.slice(End[D](), Right, cx)
 
-func nextInternal[I; D; C](self: var Cursor[I, D], filterNode: proc(s: I.summaryType): bool {.noSideEffect.}, cx: C) =
+func nextInternal[I; D; C; S](self: var Cursor[I, D], filterNode: proc(s: S): bool {.noSideEffect.}, cx: C) =
   ## Moves the cursor to the next leaf
   mixin addSummary
 
@@ -1168,26 +1188,6 @@ func prevInternal[I; D; C](self: var Cursor[I, D], filterNode: proc(s: I.summary
 func prev*[I; D; C](self: var Cursor[I, D], cx: C) =
   ## Moves the cursor to the prev leaf
   self.prevInternal((_: I.summaryType) => true, cx)
-
-func itemSummary*[I, D](self: Cursor[I, D]): Option[I.summaryType] =
-  ## Returns the summary of the current item, or none if the cursor is past the end
-
-  self.assertDidSeek
-  if self.stack.len > 0:
-    let entry {.cursor.} = self.stack[self.stack.high]
-    let node {.cursor.} = entry.node.get
-    case node.kind
-    of Leaf:
-      if entry.index >= node.mSummaries.len:
-        return I.summaryType.none
-      else:
-        return node.mSummaries[entry.index].some
-    of Internal:
-      assert false, "Stack top should contain leaf node"
-
-  return I.summaryType.none
-
-func itemSummary*[I, D](self: FilterCursor[I, D]): Option[I.summaryType] = self.cursor.itemSummary
 
 func startPos*[I; D](self: Cursor[I, D]): lent D =
   ## Returns the aggregated value up until, but not including the current node

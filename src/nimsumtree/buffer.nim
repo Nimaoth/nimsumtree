@@ -1,8 +1,7 @@
 import std/[strutils, sequtils, strformat, tables, sets, sugar, algorithm]
 import clock
 
-import nimsumtree/sumtree
-import rope
+import nimsumtree/[sumtree, rope, clone]
 
 type
   Fragment* = object
@@ -265,11 +264,15 @@ func cmp*[C](a: Option[Locator], b: Option[Locator], cx: C): int =
     0
 
 type
+  EditOperationStringKind* {.pure.} = enum String, Rope
+
   EditOperation* = object
     timestamp*: Lamport
     version*: Global
-    ranges*: seq[Slice[FullOffset]]
-    newTexts*: seq[string]
+    ranges*: seq[Range[FullOffset]]
+    textKind*: EditOperationStringKind
+    newStrings*: seq[string]
+    newRopes*: seq[Rope]
 
   UndoOperation* = object
     timestamp*: Lamport
@@ -316,7 +319,33 @@ type
     deferredReplicas: HashSet[ReplicaId]
     patches*: seq[tuple[editId: Lamport, patch: Patch[uint32]]]
 
-proc edit*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]]): Operation
+proc `=copy`*(a: var EditOperation, b: EditOperation) {.error.}
+proc `=dup`*(a: EditOperation): EditOperation {.error.}
+
+proc `=copy`*(a: var Operation, b: Operation) {.error.}
+proc `=dup`*(a: Operation): Operation {.error.}
+
+proc add*(x: var seq[Operation], y: sink seq[Operation]) {.noSideEffect.} = discard
+
+proc clone*(a: EditOperation): EditOperation =
+  result.timestamp = a.timestamp
+  result.version = a.version
+  result.ranges = a.ranges
+  result.textKind = a.textKind
+  case a.textKind
+  of String:
+    result.newStrings = a.newStrings
+  of Rope:
+    result.newRopes = collect:
+      for r in a.newRopes:
+        r.clone()
+
+proc clone*(a: Operation): Operation =
+  case a.kind
+  of Edit: Operation(kind: Edit, edit: a.edit.clone())
+  of Undo: Operation(kind: Undo, undo: a.undo)
+
+proc edit*[D, S](self: var Buffer, edits: openArray[tuple[range: Range[D], text: S]]): Operation
 func wasVisible(self: Fragment, version: Global, undoMap: UndoMap): bool
 
 func `$`*(self: Fragment): string = &"I({self.timestamp}:{self.loc}, {self.insertionOffset}, visible: {self.visible}, {self.len}, deletions: {self.deletions})"
@@ -336,12 +365,19 @@ func remoteId*(self: Buffer): BufferId = self.snapshot.remoteId
 func toOffset*(offset: int, snapshot: BufferSnapshot): int = offset
 func toOffset*(point: Point, snapshot: BufferSnapshot): int = snapshot.visibleText.pointToOffset(point)
 func toOffset*(anchor: Anchor, snapshot: BufferSnapshot): int = snapshot.summaryForAnchor(int, anchor).get
-func toOffset*[D](range: Range[D], snapshot: BufferSnapshot): int = range.a.toOffset(snapshot)...range.b.toOffset(snapshot)
+func toOffset*[D](range: Range[D], snapshot: BufferSnapshot): Range[int] = range.a.toOffset(snapshot)...range.b.toOffset(snapshot)
 
 func toPoint*(offset: int, snapshot: BufferSnapshot): Point = snapshot.visibleText.offsetToPoint(offset)
 func toPoint*(point: Point, snapshot: BufferSnapshot): Point = point
 func toPoint*(anchor: Anchor, snapshot: BufferSnapshot): Point = snapshot.summaryForAnchor(Point, anchor).get
-func toPoint*[D](range: Range[D], snapshot: BufferSnapshot): Point = range.a.toPoint(snapshot)...range.b.toPoint(snapshot)
+func toPoint*[D](range: Range[D], snapshot: BufferSnapshot): Range[Point] = range.a.toPoint(snapshot)...range.b.toPoint(snapshot)
+
+func newTextLen*(edit: EditOperation, index: int): int =
+  case edit.textKind
+  of String:
+    edit.newStrings[index].len
+  of Rope:
+    edit.newRopes[index].len
 
 func version*(op: Operation): Global =
   case op.kind
@@ -770,8 +806,8 @@ proc initHistory*(baseText: sink Rope): History =
     baseText: baseText
   )
 
-proc initBuffer*(replicaId: ReplicaId = 0.ReplicaId, content: string = "", remoteId: BufferId = 1.BufferId): Buffer =
-  let history = initHistory(Rope.new(content))
+proc initBuffer*(replicaId: ReplicaId, content: sink Rope, remoteId: BufferId = 1.BufferId): Buffer =
+  let history = initHistory(content)
 
   var fragments = SumTree[Fragment].new()
   var insertions = SumTree[InsertionFragment].new()
@@ -788,7 +824,7 @@ proc initBuffer*(replicaId: ReplicaId = 0.ReplicaId, content: string = "", remot
       timestamp: insertionTimestamp,
       insertionOffset: 0,
       loc: between(Locator.low, Locator.high),
-      len: content.len,
+      len: history.baseText.len,
       visible: true,
       deletions: initHashSet[Lamport](),
       maxUndos: initGlobal(),
@@ -814,6 +850,9 @@ proc initBuffer*(replicaId: ReplicaId = 0.ReplicaId, content: string = "", remot
     timestamp: timestamp,
   )
 
+proc initBuffer*(replicaId: ReplicaId = 0.ReplicaId, content: string = "", remoteId: BufferId = 1.BufferId): Buffer =
+  return initBuffer(replicaId, Rope.new(content), remoteId)
+
 proc clone*(self: History): History =
   result.baseText = self.baseText.clone()
   result.operations = self.operations
@@ -831,7 +870,7 @@ proc clone*(self: BufferSnapshot): BufferSnapshot =
 proc clone*(self: Buffer, replicaId: ReplicaId): Buffer =
   result.snapshot = self.snapshot.clone()
   result.history = self.history.clone()
-  result.deferredOps = self.deferredOps
+  result.deferredOps = self.deferredOps.clone()
   result.deferredReplicas = self.deferredReplicas
   result.snapshot.replicaId = replicaId
   result.timestamp = initLamport(replicaId)
@@ -925,6 +964,9 @@ proc add(self: var RopeBuilder, fragment: Fragment, wasVisible: bool) =
 proc add(self: var RopeBuilder, content: string) =
   self.newVisible.add content
 
+proc add(self: var RopeBuilder, content: sink Rope) =
+  self.newVisible.add content
+
 proc add(self: var RopeBuilder, len: FragmentTextSummary) =
   self.add(len.visible, true, true)
   self.add(len.deleted, false, false)
@@ -934,7 +976,7 @@ proc finish(self: var RopeBuilder): (Rope, Rope) =
   self.newDeleted.add(self.oldDeletedCursor.suffix())
   (self.newVisible.move, self.newDeleted.move)
 
-proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
+proc applyRemoteEdit(self: var Buffer, edit: sink EditOperation) =
   var editIndex = 0
   while editIndex < edit.ranges.len:
     var ropeBuilder = initRopeBuilder(self.snapshot.visibleText.cursor(0), self.snapshot.deletedText.cursor(0))
@@ -976,7 +1018,6 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
     block innerLoop:
       while editIndex < edit.ranges.len:
         let range = edit.ranges[editIndex]
-        let newText = edit.newTexts[editIndex]
 
         var fragmentEnd = oldFragments.endPos(cx).versionedFullOffset.fullOffset
 
@@ -1031,25 +1072,32 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
           fragmentStart = range.a
 
         # Insert new text
-        if newText.len > 0:
+        let newTextLen = edit.newTextLen(editIndex)
+        if newTextLen > 0:
           var oldStart = oldFragments.startPos().offset.uint32
           if oldFragments.item.mapIt(it[].visible).get(false):
             oldStart = (oldStart.int + fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int).uint32
           let newStart = newFragments.summary().text.visible.uint32
           let id = between(newFragments.summary.maxId, oldFragments.item.mapIt(it[].loc).get(Locator.high))
-          let fragment = initFragment(edit.timestamp, newText.len, insertionOffset, id)
-          patch.add initEdit(oldStart...oldStart, newStart...(newStart + newText.len.uint32))
+          let fragment = initFragment(edit.timestamp, newTextLen, insertionOffset, id)
+          patch.add initEdit(oldStart...oldStart, newStart...(newStart + newTextLen.uint32))
           insertionSlices.add fragment.insertionSlice
           newInsertions.add(InsertionFragment.insertNew(fragment))
           newFragments.add(fragment, ())
-          ropeBuilder.add(newText)
-          insertionOffset += newText.len
 
-        while fragmentStart < range.b + 1.FullOffset:
+          case edit.textKind
+          of String:
+            ropeBuilder.add(edit.newStrings[editIndex].move)
+          of Rope:
+            ropeBuilder.add(edit.newRopes[editIndex].move)
+
+          insertionOffset += newTextLen
+
+        while fragmentStart < range.b:
           let fragment = oldFragments.item().get
           let fragmentEnd = oldFragments.endPos(cx).versionedFullOffset.fullOffset
           var intersection = fragment[].clone()
-          let intersectionEnd = min(range.b + 1.FullOffset, fragmentEnd)
+          let intersectionEnd = min(range.b, fragmentEnd)
 
           if fragment[].wasVisible(edit.version, self.snapshot.undoMap):
             intersection.len = intersectionEnd.int - fragmentStart.int
@@ -1069,18 +1117,19 @@ proc applyRemoteEdit(self: var Buffer, edit: EditOperation) =
             newFragments.add(intersection, ())
             fragmentStart = intersectionEnd
 
-          if fragmentEnd <= range.b + 1.FullOffset:
+          if fragmentEnd <= range.b:
             oldFragments.next(cx)
 
         inc editIndex
 
-proc applyOp(self: var Buffer, op: Operation): bool =
+proc applyOp(self: var Buffer, op: sink Operation): bool =
   case op.kind
   of Edit:
-    if not self.snapshot.version.observed(op.edit.timestamp):
-      self.applyRemoteEdit(op.edit)
-      self.snapshot.version.observe(op.edit.timestamp)
-      self.timestamp.observe(op.edit.timestamp)
+    let timestamp = op.edit.timestamp
+    if not self.snapshot.version.observed(timestamp):
+      self.applyRemoteEdit(op.edit.move)
+      self.snapshot.version.observe(timestamp)
+      self.timestamp.observe(timestamp)
       discard self.timestamp.tick() # todo: necessary?
 
   of Undo:
@@ -1099,42 +1148,56 @@ func canApplyOp(self: var Buffer, op: Operation): bool =
 
 proc flushDeferredOps(self: var Buffer): bool =
   self.deferredReplicas.clear()
-  let currentDeferredOps = self.deferredOps
+  var currentDeferredOps = self.deferredOps.move
   self.deferredOps.setLen(0)
 
   var deferredOps = newSeq[Operation]()
-  for op in currentDeferredOps:
+  for op in currentDeferredOps.mitems:
     if self.canApplyOp(op):
-      if not self.applyOp(op):
+      if not self.applyOp(op.move):
         return false
     else:
       self.deferredReplicas.incl(op.timestamp.replicaId)
-      deferredOps.add(op)
+      deferredOps.add(op.move)
 
-  self.deferredOps.add(deferredOps)
+  for op in deferredOps.mitems:
+    self.deferredOps.add(op.move)
+
   return true
 
-proc applyRemote*(self: var Buffer, ops: openArray[Operation]): bool =
+proc applyRemote*(self: var Buffer, ops: sink seq[Operation]): bool =
   var deferredOps = newSeq[Operation]()
-  for op in ops:
+  for op in ops.mitems:
     if self.canApplyOp(op):
-      if not self.applyOp(op):
+      if not self.applyOp(op.move):
         return false
     else:
       self.deferredReplicas.incl(op.timestamp.replicaId)
-      deferredOps.add(op)
+      deferredOps.add(op.move)
 
   defer:
     self.history.versions.add self.snapshot.version
 
-  self.deferredOps.add(deferredOps)
+  for op in deferredOps.mitems:
+    self.deferredOps.add(op.move)
+
   return self.flushDeferredOps()
 
-proc applyLocal(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]], timestamp: Lamport): EditOperation =
+proc applyLocal[D, S](self: var Buffer, edits: openArray[tuple[range: Range[D], text: S]], timestamp: Lamport): EditOperation =
+  bind mapIt
+
+  let snapshot = self.snapshot.clone()
+
   result.timestamp = timestamp
   result.version = self.snapshot.version
-  result.ranges = newSeqOfCap[Slice[FullOffset]](edits.len)
-  result.newTexts = newSeqOfCap[string](edits.len)
+  result.ranges = newSeqOfCap[Range[FullOffset]](edits.len)
+  when S is Rope:
+    result.textKind = EditOperationStringKind.Rope
+    result.newRopes = newSeqOfCap[Rope](edits.len)
+  else:
+    result.textKind = EditOperationStringKind.String
+    result.newStrings = newSeqOfCap[string](edits.len)
+
   self.snapshot.version.observe(timestamp)
 
   var opIndex = 0
@@ -1143,7 +1206,10 @@ proc applyLocal(self: var Buffer, edits: openArray[tuple[range: Slice[int], text
     var insertionOffset = 0
 
     var oldFragments = self.snapshot.fragments.initCursor(FragmentTextSummary)
-    var newFragments = oldFragments.slice(edits[opIndex].range.a, Bias.Right, ())
+    when D is int:
+      var newFragments = oldFragments.slice(edits[opIndex].range.a, Bias.Right, ())
+    else:
+      var newFragments = oldFragments.slice(edits[opIndex].range.a.toOffset(snapshot), Bias.Right, ())
     ropeBuilder.add(newFragments.summary().text)
 
     var fragmentStart = oldFragments.startPos().visible
@@ -1178,14 +1244,15 @@ proc applyLocal(self: var Buffer, edits: openArray[tuple[range: Slice[int], text
     block innerLoop:
       while opIndex < edits.len:
         let edit {.cursor.} = edits[opIndex]
+        let range = edit.range.toOffset(snapshot)
 
         let fragmentEnd = oldFragments.endPos(()).visible
 
-        if edit.range.a < fragmentStart:
+        if range.a < fragmentStart:
           # Trying to insert out of order, commit current edits by breaking inner loop
           break innerLoop
 
-        if fragmentEnd < edit.range.a:
+        if fragmentEnd < range.a:
           if fragmentStart > oldFragments.startPos().visible:
             if fragmentEnd > fragmentStart:
               var suffix = oldFragments.item.get[].clone()
@@ -1197,24 +1264,24 @@ proc applyLocal(self: var Buffer, edits: openArray[tuple[range: Slice[int], text
 
             oldFragments.next(())
 
-          let slice = oldFragments.slice(edit.range.a, Bias.Right, ())
+          let slice = oldFragments.slice(range.a, Bias.Right, ())
           ropeBuilder.add(slice.summary().text)
           newFragments.append(slice, ())
 
           fragmentStart = oldFragments.startPos().visible
 
-        let fullRangeStart = FullOffset(edit.range.a + oldFragments.startPos().deleted)
+        let fullRangeStart = FullOffset(range.a + oldFragments.startPos().deleted)
 
         # Take prefix of overlapping fragment
-        if fragmentStart < edit.range.a:
+        if fragmentStart < range.a:
           var prefix = oldFragments.item.get[].clone()
-          prefix.len = edit.range.a - fragmentStart
+          prefix.len = range.a - fragmentStart
           prefix.insertionOffset += fragmentStart - oldFragments.startPos().visible
           prefix.loc = between(newFragments.summary.maxId, prefix.loc)
           newInsertions.add(InsertionFragment.insertNew(prefix))
           ropeBuilder.add(prefix, prefix.visible)
           newFragments.add(prefix, ())
-          fragmentStart = edit.range.a
+          fragmentStart = range.a
 
         # Insert new text
         if edit.text.len > 0:
@@ -1225,15 +1292,15 @@ proc applyLocal(self: var Buffer, edits: openArray[tuple[range: Slice[int], text
           insertionSlices.add fragment.insertionSlice
           newInsertions.add(InsertionFragment.insertNew(fragment))
           newFragments.add(fragment, ())
-          ropeBuilder.add(edit.text)
+          ropeBuilder.add(edit.text.clone())
           insertionOffset += edit.text.len
 
         # Delete overlapping fragments
-        while fragmentStart < edit.range.b + 1:
+        while fragmentStart < range.b:
           let fragment = oldFragments.item().get
           let fragmentEnd = oldFragments.endPos(()).visible
           var intersection = fragment[].clone()
-          let intersectionEnd = min(edit.range.b + 1, fragmentEnd)
+          let intersectionEnd = min(range.b, fragmentEnd)
           if fragment[].visible:
             intersection.len = intersectionEnd - fragmentStart
             intersection.insertionOffset += fragmentStart - oldFragments.startPos().visible
@@ -1252,12 +1319,16 @@ proc applyLocal(self: var Buffer, edits: openArray[tuple[range: Slice[int], text
             newFragments.add(intersection, ())
             fragmentStart = intersectionEnd
 
-          if fragmentEnd <= edit.range.b + 1:
+          if fragmentEnd <= range.b:
             oldFragments.next(())
 
-        let fullRangeEnd = FullOffset(edit.range.b + 1 + oldFragments.startPos().deleted)
-        result.ranges.add fullRangeStart..<fullRangeEnd
-        result.newTexts.add edit.text
+        let fullRangeEnd = FullOffset(range.b + oldFragments.startPos().deleted)
+        result.ranges.add fullRangeStart...fullRangeEnd
+
+        when S is Rope:
+          result.newRopes.add edit.text.clone()
+        else:
+          result.newStrings.add $edit.text
 
         inc opIndex
 
@@ -1347,7 +1418,7 @@ proc undoOrRedo(self: var Buffer, transaction: Transaction): Option[Operation] =
   for editId in transaction.editIds:
     counts[editId] = self.snapshot.undoMap.undoCount(editId) + 1
 
-  let undo = UndoOperation(
+  var undo = UndoOperation(
     timestamp: self.timestamp.tick(),
     version: self.snapshot.version,
     counts: counts
@@ -1357,12 +1428,12 @@ proc undoOrRedo(self: var Buffer, transaction: Transaction): Option[Operation] =
 
   self.snapshot.version.observe(undo.timestamp)
 
-  Operation(kind: Undo, undo: undo).some
+  Operation(kind: Undo, undo: undo.move).some
 
-proc push(self: var History, op: Operation) =
+proc push(self: var History, op: sink Operation) =
   self.operations[op.timestamp] = op
 
-proc pushUndo(self: var History, edit: EditOperation) =
+proc pushUndo(self: var History, edit: sink EditOperation) =
   assert self.undoStack.len > 0
   self.undoStack[^1].transaction.editIds.add(edit.timestamp)
 
@@ -1391,7 +1462,7 @@ proc startTransaction(self: var Buffer): Option[TransactionId] =
 proc endTransaction(self: var Buffer): Option[ptr HistoryEntry] =
   self.history.endTransaction()
 
-proc edit*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: string]]): Operation =
+proc edit*[D, S](self: var Buffer, edits: openArray[tuple[range: Range[D], text: S]]): Operation =
   defer:
     self.history.versions.add self.snapshot.version
 
@@ -1399,9 +1470,9 @@ proc edit*(self: var Buffer, edits: openArray[tuple[range: Slice[int], text: str
   if self.timestamp.value == 0:
     discard self.timestamp.tick()
   let timestamp = self.timestamp.tick()
-  let operation = Operation(kind: Edit, edit: self.applyLocal(edits, timestamp))
-  self.history.push(operation)
-  self.history.pushUndo(operation.edit)
+  var operation = Operation(kind: OperationKind.Edit, edit: self.applyLocal(edits, timestamp))
+  self.history.push(operation.clone())
+  self.history.pushUndo(operation.edit.clone())
   self.snapshot.version.observe(timestamp)
   discard self.endTransaction()
   operation
@@ -1413,7 +1484,7 @@ proc undo*(self: var Buffer, op: Lamport): Operation =
   var counts = initTable[Lamport, uint32]()
   counts[op] = self.snapshot.undoMap.undoCount(op) + 1
 
-  let undo = UndoOperation(
+  var undo = UndoOperation(
     timestamp: self.timestamp.tick(),
     version: self.snapshot.version,
     counts: counts
@@ -1421,7 +1492,7 @@ proc undo*(self: var Buffer, op: Lamport): Operation =
   discard self.applyUndo(undo)
   self.snapshot.version.observe(undo.timestamp)
 
-  Operation(kind: Undo, undo: undo)
+  Operation(kind: Undo, undo: undo.move)
 
 proc redo*(self: var Buffer): Option[tuple[transactionId: TransactionId, op: Operation]] =
   defer:
@@ -1430,9 +1501,9 @@ proc redo*(self: var Buffer): Option[tuple[transactionId: TransactionId, op: Ope
   if self.history.redoStack.len > 0:
     let entry = self.history.redoStack.pop
     self.history.undoStack.add(entry)
-    let op = self.undoOrRedo(entry.transaction)
+    var op = self.undoOrRedo(entry.transaction)
     if op.isSome:
-      return (entry.transaction.id, op.get).some
+      return (entry.transaction.id, op.get.move).some
 
 proc undo*(self: var Buffer): Option[tuple[transactionId: TransactionId, op: Operation]] =
   defer:
@@ -1441,9 +1512,9 @@ proc undo*(self: var Buffer): Option[tuple[transactionId: TransactionId, op: Ope
   if self.history.undoStack.len > 0:
     let entry = self.history.undoStack.pop
     self.history.redoStack.add(entry)
-    let op = self.undoOrRedo(entry.transaction)
+    var op = self.undoOrRedo(entry.transaction)
     if op.isSome:
-      return (entry.transaction.id, op.get).some
+      return (entry.transaction.id, op.get.move).some
 
 proc dump*(self: Buffer): string =
   var startFullOffset = 0
@@ -1481,3 +1552,89 @@ func items*(self: Buffer): seq[Fragment] = self.snapshot.fragments.toSeq(()).map
 
 func snapshot*(self: Buffer): lent BufferSnapshot = self.snapshot
 func visibleText*(self: Buffer): lent Rope = self.snapshot.visibleText
+
+import std/[json, jsonutils]
+
+proc `%`*(a: ReplicaId): JsonNode {.borrow.}
+proc `%`*(a: Global): JsonNode {.borrow.}
+
+proc fromJsonHook*(a: var EditOperation, b: JsonNode, opt = Joptions()) =
+  a.timestamp = b["timestamp"].jsonTo(typeof(a.timestamp))
+  a.version = b["version"].jsonTo(typeof(a.version))
+  a.ranges = b["ranges"].jsonTo(typeof(a.ranges))
+
+  var newTexts = b["newTexts"]
+  var longestString = 0
+  for text in newTexts.elems:
+    longestString = max(longestString, text.str.len)
+
+  if longestString > treeBase * chunkBase:
+    a.textKind = Rope
+    for text in newTexts.elems:
+      a.newRopes.add Rope.new(text.str)
+
+  else:
+    a.textKind = String
+    for text in newTexts.elems:
+      a.newStrings.add text.str
+
+proc toJsonHook*(a: EditOperation): JsonNode =
+  var newTexts = newJArray()
+  case a.textKind
+  of String:
+    for s in a.newStrings:
+      newTexts.elems.add %s
+  of Rope:
+    for s in a.newRopes:
+      newTexts.elems.add(% $s)
+
+  return %*{
+    "timestamp": a.timestamp.toJson,
+    "version": a.version.toJson,
+    "ranges": a.ranges.toJson,
+    "newTexts": newTexts,
+  }
+
+proc fromJsonHook*(a: var Table[Lamport, uint32], b: JsonNode, opt = Joptions()) =
+  for entry in b.elems:
+    let key = entry.elems[0].jsonTo(Lamport)
+    let value = entry.elems[1].jsonTo(uint32)
+    a[key] = value
+
+proc toJsonHook*(a: Table[Lamport, uint32]): JsonNode =
+  result = newJArray()
+  for key, value in a.pairs:
+    result.add [key.toJson, value.toJson].toJson
+
+proc fromJsonHook*(a: var UndoOperation, b: JsonNode, opt = Joptions()) =
+  a.timestamp = b["timestamp"].jsonTo(typeof(a.timestamp))
+  a.version = b["version"].jsonTo(typeof(a.version))
+  a.counts = b["counts"].jsonTo(typeof(a.counts))
+
+proc toJsonHook*(a: UndoOperation): JsonNode =
+  return %*{
+    "timestamp": a.timestamp.toJson,
+    "version": a.version.toJson,
+    "counts": a.counts.toJson,
+  }
+
+proc fromJsonHook*(a: var Operation, b: JsonNode, opt = Joptions()) =
+  a = Operation(kind: b["kind"].jsonTo(typeof(a.kind)))
+  case a.kind
+  of Edit:
+    a.edit = b["edit"].jsonTo(typeof(a.edit))
+  of Undo:
+    a.undo = b["undo"].jsonTo(typeof(a.undo))
+
+proc toJsonHook*(a: Operation): JsonNode =
+  case a.kind
+  of Edit:
+    return %*{
+      "kind": a.kind,
+      "edit": a.edit.toJsonHook(),
+    }
+  of Undo:
+    return %*{
+      "kind": a.kind,
+      "undo": a.undo.toJsonHook(),
+    }

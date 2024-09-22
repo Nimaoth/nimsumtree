@@ -1,6 +1,6 @@
 import std/[strutils, sequtils, strformat, unittest, random, math, sets, monotimes]
 
-import nimsumtree/[buffer, rope, clock]
+import nimsumtree/[buffer, rope, clock, clone]
 
 var debugLog = false
 var debugFuzz = false
@@ -18,7 +18,7 @@ suite "tests":
   proc initBuffers(initialText: string) =
     when defined(iter1) or defined(iter2) or defined(iter3):
       doc1 = initBuffer(0.ReplicaId)
-      discard doc1.edit([(0..<0, initialText)])
+      discard doc1.edit([(0...0, initialText)])
     else:
       doc1 = initBuffer(0.ReplicaId, initialText)
     doc2 = doc1.clone(1.ReplicaId)
@@ -30,42 +30,42 @@ suite "tests":
     if d1:
       if debugLog: echo "========================================= sync 2 to 1"
       if debugLog: echo doc1
-      discard doc1.applyRemote(ops2)
+      discard doc1.applyRemote(ops2.clone())
       ops2.setLen 0
       if debugLog: echo "  doc1: '", doc1.contentString, "': ", doc1
     if d2:
       if debugLog: echo "========================================= sync 1 to 2"
       if debugLog: echo doc2
-      discard doc2.applyRemote(ops1)
+      discard doc2.applyRemote(ops1.clone())
       ops1.setLen 0
       if debugLog: echo "  doc2: '", doc2.contentString, "': ", doc2
 
   template insert1(pos1, text1: untyped): untyped =
-    ops1.add doc1.edit([(pos1..<pos1, text1)])
+    ops1.add doc1.edit([(pos1...pos1, text1)])
     if debugLog: echo "  ops1: ", ops1.prettyIt
     if debugLog: echo "  doc1: ", doc1
 
   template insert2(pos2, text2: untyped): untyped =
-    ops2.add doc2.edit([(pos2..<pos2, text2)])
+    ops2.add doc2.edit([(pos2...pos2, text2)])
     if debugLog: echo "  ops2: ", ops2.prettyIt
     if debugLog: echo "  doc2: ", doc2
 
-  template delete1(r: Slice[int]): untyped =
+  template delete1(r: Range[int]): untyped =
     ops1.add doc1.edit([(r, "")])
     if debugLog: echo "  ops1: ", ops1.prettyIt
     if debugLog: echo "  doc1: ", doc1
 
-  template delete2(r: Slice[int]): untyped =
+  template delete2(r: Range[int]): untyped =
     ops2.add doc2.edit([(r, "")])
     if debugLog: echo "  ops2: ", ops2.prettyIt
     if debugLog: echo "  doc2: ", doc2
 
-  template deleteRange1(r: Slice[int]): untyped =
+  template deleteRange1(r: Range[int]): untyped =
     ops1.add doc1.edit([(r, "")])
     if debugLog: echo "  ops1: ", ops1.prettyIt
     if debugLog: echo "  doc1: ", doc1
 
-  template deleteRange2(r: Slice[int]): untyped =
+  template deleteRange2(r: Range[int]): untyped =
     ops2.add doc2.edit([(r, "")])
     if debugLog: echo "  ops2: ", ops2.prettyIt
     if debugLog: echo "  doc2: ", doc2
@@ -90,26 +90,26 @@ suite "tests":
   test "undo":
     initBuffers("In 1968,")
 
-    let op11 = doc1.edit([(3..<3, "December of ")])
-    let op12 = doc2.edit([(8..<8, " Douglas Engelbart")])
+    let op11 = doc1.edit([(3...3, "December of ")])
+    let op12 = doc2.edit([(8...8, " Douglas Engelbart")])
 
     check doc1.contentString == "In December of 1968,"
     check doc2.contentString == "In 1968, Douglas Engelbart"
 
-    discard doc1.applyRemote(@[op12])
-    discard doc2.applyRemote(@[op11])
+    discard doc1.applyRemote(@[op12.clone()])
+    discard doc2.applyRemote(@[op11.clone()])
 
     check doc1.contentString == "In December of 1968, Douglas Engelbart"
     check doc2.contentString == "In December of 1968, Douglas Engelbart"
 
-    let op21 = doc1.edit([(29..<29, "C. ")])
-    let op22 = doc2.edit([(38..<38, " demonstrated")])
+    let op21 = doc1.edit([(29...29, "C. ")])
+    let op22 = doc2.edit([(38...38, " demonstrated")])
 
     check doc1.contentString == "In December of 1968, Douglas C. Engelbart"
     check doc2.contentString == "In December of 1968, Douglas Engelbart demonstrated"
 
-    discard doc1.applyRemote(@[op22])
-    discard doc2.applyRemote(@[op21])
+    discard doc1.applyRemote(@[op22.clone()])
+    discard doc2.applyRemote(@[op21.clone()])
 
     check doc1.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
     check doc2.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
@@ -119,7 +119,7 @@ suite "tests":
     check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
     check doc2.contentString == "In December of 1968, Douglas C. Engelbart demonstrated"
 
-    discard doc2.applyRemote(@[undo1])
+    discard doc2.applyRemote(@[undo1.clone()])
 
     check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
     check doc2.contentString == "In December of 1968, Douglas Engelbart demonstrated"
@@ -129,7 +129,7 @@ suite "tests":
     check doc1.contentString == "In December of 1968, Douglas Engelbart demonstrated"
     check doc2.contentString == "In December of 1968, demonstrated"
 
-    discard doc1.applyRemote(@[undo2])
+    discard doc1.applyRemote(@[undo2.clone()])
 
     check doc1.contentString == "In December of 1968, demonstrated"
     check doc2.contentString == "In December of 1968, demonstrated"
@@ -139,7 +139,7 @@ suite "tests":
     check doc1.contentString == "In December of 1968, demonstrated"
     check doc2.contentString == "In December of 1968,C.  demonstrated"
 
-    discard doc1.applyRemote(@[undo3])
+    discard doc1.applyRemote(@[undo3.clone()])
 
     check doc1.contentString == "In December of 1968,C.  demonstrated"
     check doc2.contentString == "In December of 1968,C.  demonstrated"
@@ -149,14 +149,14 @@ suite "tests":
     var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
     var doc2: Buffer = initBuffer(1.ReplicaId, initialContent)
 
-    let ops1 = doc1.edit([(6..<12, "?")])
-    let ops2 = doc2.edit([(6..<11, "you")])
+    let ops1 = doc1.edit([(6...12, "?")])
+    let ops2 = doc2.edit([(6...11, "you")])
 
     check $doc1.visibleText == "Hello ?"
     check $doc2.visibleText == "Hello you!"
 
-    discard doc1.applyRemote(@[ops2])
-    discard doc2.applyRemote(@[ops1])
+    discard doc1.applyRemote(@[ops2.clone()])
+    discard doc2.applyRemote(@[ops1.clone()])
 
     check $doc1.visibleText == "Hello you?"
     check $doc2.visibleText == "Hello you?"
@@ -263,7 +263,7 @@ suite "tests":
 
   test "delete in 1":
     initBuffers("Hello world!")
-    delete1(5..<11)
+    delete1(5...11)
     check doc1.contentString == "Hello!"
     check doc2.contentString == "Hello world!"
     sync()
@@ -273,7 +273,7 @@ suite "tests":
 
   test "delete in 2":
     initBuffers("Hello world!")
-    delete2(5..<11)
+    delete2(5...11)
     check doc1.contentString == "Hello world!"
     check doc2.contentString == "Hello!"
     sync()
@@ -282,8 +282,8 @@ suite "tests":
 
   test "delete in 1 and 2 in different locations (1)":
     initBuffers("Hello world!")
-    delete1(11..<12)
-    delete2(5..<11)
+    delete1(11...12)
+    delete2(5...11)
     check doc1.contentString == "Hello world"
     check doc2.contentString == "Hello!"
     sync()
@@ -292,8 +292,8 @@ suite "tests":
 
   test "delete in 1 and 2 in different locations (2)":
     initBuffers("Hello world!")
-    delete1(0..<6)
-    delete2(2..<9)
+    delete1(0...6)
+    delete2(2...9)
     check doc1.contentString == "world!"
     check doc2.contentString == "Held!"
     sync()
@@ -320,7 +320,7 @@ suite "tests":
 
   test "t2":
     initBuffers("In 1968,")
-    delete1(0..7)
+    delete1(0...8)
     insert2(8, " Douglas Engelbart")
     check doc1.contentString == ""
     check doc2.contentString == "In 1968, Douglas Engelbart"
@@ -338,7 +338,7 @@ suite "tests":
     check doc2.contentString == "In 1968, Douglas Engelbart"
     check doc1.items == doc2.items
 
-    delete1(3..20)
+    delete1(3...21)
     insert2(17, "C. ")
     check doc1.contentString == "In lbart"
     check doc2.contentString == "In 1968, Douglas C. Engelbart"
@@ -355,7 +355,7 @@ suite "tests":
     check doc1.contentString == "In 1968, Douglas Engelbart"
     check doc2.contentString == "In 1968, Douglas Engelbart"
 
-    deleteRange1(3..20)
+    deleteRange1(3...21)
     insert2(17, "C. ")
     check doc1.contentString == "In lbart"
     check doc2.contentString == "In 1968, Douglas C. Engelbart"
@@ -372,7 +372,7 @@ suite "tests":
     check doc1.contentString == "ID"
     check doc2.contentString == "ID"
 
-    deleteRange1(0..<2)
+    deleteRange1(0...2)
     insert2(1, "C")
     check doc1.contentString == ""
     check doc2.contentString == "ICD"
@@ -443,11 +443,11 @@ suite "tests":
         if contentLength > 0:
           let first = rand(contentLength - 1)
           let len = rand(contentLength - first - 1) + 1
-          if debugLog or debugFuzz: echo "  Delete " & $first & "..<" & $(first + len), " in doc", docIdx + 1
+          if debugLog or debugFuzz: echo "  Delete " & $first & "..." & $(first + len), " in doc", docIdx + 1
           if docIdx == 0:
-            deleteRange1(first..<(first + len))
+            deleteRange1(first...(first + len))
           elif docIdx == 1:
-            deleteRange2(first..<(first + len))
+            deleteRange2(first...(first + len))
         else:
           if debugLog or debugFuzz: echo "  Nothing to delete"
 
@@ -517,20 +517,20 @@ suite "tests":
       var doc2 = initBuffer(1.ReplicaId, "abcdef")
       var doc3 = initBuffer(2.ReplicaId, "abcdef")
 
-      let op1 = @[doc1.edit([(1..<2, "12")])]
-      let op2 = @[doc2.edit([(3..<4, "34")])]
-      let op3 = @[doc3.edit([(5..<6, "56")])]
+      let op1 = @[doc1.edit([(1...2, "12")])]
+      let op2 = @[doc2.edit([(3...4, "34")])]
+      let op3 = @[doc3.edit([(5...6, "56")])]
 
       check doc1.contentString == "a12cdef"
       check doc2.contentString == "abc34ef"
       check doc3.contentString == "abcde56"
 
-      discard doc1.applyRemote(op2)
-      discard doc1.applyRemote(op3)
-      discard doc2.applyRemote(op1)
-      discard doc2.applyRemote(op3)
-      discard doc3.applyRemote(op1)
-      discard doc3.applyRemote(op2)
+      discard doc1.applyRemote(op2.clone())
+      discard doc1.applyRemote(op3.clone())
+      discard doc2.applyRemote(op1.clone())
+      discard doc2.applyRemote(op3.clone())
+      discard doc3.applyRemote(op1.clone())
+      discard doc3.applyRemote(op2.clone())
 
       check doc1.contentString == "a12c34e56"
       check doc2.contentString == "a12c34e56"
@@ -541,12 +541,12 @@ suite "tests":
     var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
     var doc2: Buffer = initBuffer(1.ReplicaId, initialContent)
 
-    let ops1 = doc1.edit([(4..<4, "["), (5..<5, "]"), (7..<7, "["), (8..<8, "]")])
+    let ops1 = doc1.edit([(4...4, "["), (5...5, "]"), (7...7, "["), (8...8, "]")])
 
     check $doc1.visibleText == "foo([a], [b])"
     check $doc2.visibleText == "foo(a, b)"
 
-    discard doc2.applyRemote(@[ops1])
+    discard doc2.applyRemote(@[ops1.clone()])
 
     check $doc1.visibleText == "foo([a], [b])"
     check $doc2.visibleText == "foo([a], [b])"
@@ -556,12 +556,12 @@ suite "tests":
     var doc1: Buffer = initBuffer(0.ReplicaId, initialContent)
     var doc2: Buffer = initBuffer(1.ReplicaId, initialContent)
 
-    let ops1 = doc1.edit([(7..<7, "["), (8..<8, "]"), (4..<4, "["), (5..<5, "]")])
+    let ops1 = doc1.edit([(7...7, "["), (8...8, "]"), (4...4, "["), (5...5, "]")])
 
     check $doc1.visibleText == "foo([a], [b])"
     check $doc2.visibleText == "foo(a, b)"
 
-    discard doc2.applyRemote(@[ops1])
+    discard doc2.applyRemote(@[ops1.clone()])
 
     check $doc1.visibleText == "foo([a], [b])"
     check $doc2.visibleText == "foo([a], [b])"

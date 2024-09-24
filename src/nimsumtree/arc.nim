@@ -37,6 +37,7 @@ proc `=trace`*[T](a: var Arc[T], env: pointer) =
   if a.data != nil:
     `=trace`(a.data[].value, env)
 
+var arcCount*: int = 0
 proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
   if a.data == nil:
     return
@@ -56,6 +57,9 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
 
   when debugCustomArc:
     echo "Arc.destroy _", a.data[].id, ", count: ", a.data[].count.load
+
+  {.cast(noSideEffect).}:
+    arcCount.dec
 
   {.warning[BareExcept]: off.}
   try:
@@ -79,6 +83,9 @@ func new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
   result.data[].count.store(1.uint64)
   result.data[].value = default.move
 
+  {.cast(noSideEffect).}:
+    arcCount.inc
+
   when debugCustomArcId or debugCustomArc:
     inc idCounter
     when debugCustomArc:
@@ -92,6 +99,9 @@ func new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
     result.data = cast[ptr ArcData[T]](allocShared0(sizeof(ArcData[T])))
   result.data[].count.store(1.uint64)
   result.data[].value = default.move
+
+  {.cast(noSideEffect).}:
+    arcCount.inc
 
   when debugCustomArcId or debugCustomArc:
     inc idCounter
@@ -140,6 +150,8 @@ func get*[T](a: Arc[T]): lent T =
   # assert a.count == 1
   a.data[].value
 
+var arcUniqueCount*: int = 0
+var arcNonUniqueCount*: int = 0
 
 func makeUnique*[T](a: var Arc[T]) =
   assert a.data != nil
@@ -153,7 +165,11 @@ func makeUnique*[T](a: var Arc[T]) =
       echo &"Arc.makeUnique {a} -> {b}"
 
     a = b.move
+    {.cast(noSideEffect).}:
+      arcNonUniqueCount.inc
 
   else:
     # Only reference, set count back to one
     a.data[].count.store(1, moRelease)
+    {.cast(noSideEffect).}:
+      arcUniqueCount.inc

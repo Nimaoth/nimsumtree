@@ -415,16 +415,16 @@ func ropeForVersion*(self: BufferSnapshot, version: Global): Rope =
     let fragment = cursor.item.get
 
     if cursor.startPos.visible > visibleCursor.offset:
-      let text = visibleCursor.slice(cursor.startPos.visible)
+      let text = visibleCursor.sliceRope(cursor.startPos.visible)
       rope.add(text)
 
     if fragment[].wasVisible(version, self.undoMap):
       if fragment[].visible:
-        let text = visibleCursor.slice(cursor.endPos(()).visible)
+        let text = visibleCursor.sliceRope(cursor.endPos(()).visible)
         rope.add(text)
       else:
         deletedCursor.seekForward(cursor.startPos.deleted)
-        let text = deletedCursor.slice(cursor.endPos(()).deleted)
+        let text = deletedCursor.sliceRope(cursor.endPos(()).deleted)
         rope.add(text)
 
     elif fragment[].visible:
@@ -433,7 +433,7 @@ func ropeForVersion*(self: BufferSnapshot, version: Global): Rope =
     cursor.next(())
 
   if cursor.startPos.visible > visibleCursor.offset:
-    let text = visibleCursor.slice(cursor.startPos.visible)
+    let text = visibleCursor.sliceRope(cursor.startPos.visible)
     rope.add(text)
 
   return rope
@@ -949,9 +949,9 @@ func isVisible(self: Fragment, undoMap: UndoMap): bool =
 
 proc add(self: var RopeBuilder, len: int, wasVisible: bool, isVisible: bool) =
   let text: Rope = if wasVisible:
-    self.oldVisibleCursor.slice(self.oldVisibleCursor.offset + len)
+    self.oldVisibleCursor.sliceRope(self.oldVisibleCursor.offset + len)
   else:
-    self.oldDeletedCursor.slice(self.oldDeletedCursor.offset + len)
+    self.oldDeletedCursor.sliceRope(self.oldDeletedCursor.offset + len)
 
   if isVisible:
     self.newVisible.add text

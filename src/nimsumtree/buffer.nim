@@ -3,6 +3,9 @@ import clock
 
 import nimsumtree/[sumtree, rope, clone]
 
+{.push gcsafe.}
+{.push raises: [].}
+
 type
   Fragment* = object
     loc*: Locator
@@ -485,6 +488,8 @@ func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor, resolve
 
   if cursor.item.isSome:
     let insertion {.cursor.} = cursor.item.get[]
+    if insertion.timestamp != anchor.timestamp:
+      return D.none
     assert insertion.timestamp == anchor.timestamp
     var fragmentCursor = self.fragments.initCursor (Option[Locator], int)
     discard fragmentCursor.seek(insertion.fragmentId.some, Left, ())
@@ -1335,8 +1340,8 @@ proc applyLocal[D, S](self: var Buffer, edits: openArray[tuple[range: Range[D], 
 proc fragmentIdsForEdits(self: var Buffer, edits: openArray[Lamport]): seq[Locator] =
   var insertionSlices = newSeqOfCap[InsertionSlice](edits.len)
   for editId in edits:
-    if self.history.insertionSlices.contains(editId):
-      insertionSlices.add(self.history.insertionSlices[editId])
+    self.history.insertionSlices.withValue(editId, slice):
+      insertionSlices.add(slice[])
 
   func cmpFn(a, b: InsertionSlice): int =
     if a.insertionId == b.insertionId:
@@ -1552,6 +1557,9 @@ func items*(self: Buffer): seq[Fragment] = self.snapshot.fragments.toSeq(()).map
 
 func snapshot*(self: Buffer): lent BufferSnapshot = self.snapshot
 func visibleText*(self: Buffer): lent Rope = self.snapshot.visibleText
+
+{.pop.} # raises: []
+{.pop.} # gcsafe
 
 import std/[json, jsonutils]
 

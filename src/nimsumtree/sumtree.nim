@@ -3,10 +3,8 @@ import arc, static_array
 
 export arc, static_array, options, strutils
 
-const debugNodeLifecycle = false
-const debugAppend = false
-
-var recursion = 0
+{.push gcsafe.}
+{.push raises: [].}
 
 # todo: at some point use concepts when they work
 # type
@@ -99,7 +97,7 @@ type
 
   FilterCursor*[I; D] = object
     cursor: Cursor[I, D]
-    filterNode: proc(summary: I.summaryType): bool {.noSideEffect.}
+    filterNode: proc(summary: I.summaryType): bool {.noSideEffect, raises: [].}
 
   Stats* = object
     height: int
@@ -368,9 +366,6 @@ func newLeaf*[I](): Node[I] =
   Node[I](kind: Leaf, mSummary: Summary.default)
 
 func clone*[I](a {.byref.}: Node[I]): Node[I] =
-  # when debugNodeLifecycle:
-  #   echo indent(&"Node.clone {a}", recursion)
-
   result = Node[I](kind: a.kind)
   result.mSummary = a.mSummary.clone()
   result.mSummaries = a.mSummaries.clone()
@@ -444,9 +439,6 @@ func new*[I, C](_: typedesc[SumTree[I]], items: sink seq[I], cx: C): SumTree[I] 
     assert nodes.len == 1
     result = Arc.new(nodes[0].move).toTree
 
-  # echo indent(result.pretty, recursion)
-  # echo "-----------------"
-
 func leftmostLeaf*[I](self {.byref.}: ArcNode[I]): lent ArcNode[I] =
   case self.get.kind
   of Leaf:
@@ -483,7 +475,7 @@ func first*[I](self {.byref.}: SumTree[I]): Option[ptr I] =
 func last*[I](self {.byref.}: SumTree[I]): Option[ptr I] =
   self.root.last
 
-func updateLastRecursive[I; C](self: var ArcNode[I], f: proc(node: var I) {.noSideEffect.}, cx: C): Option[I.summaryType] =
+func updateLastRecursive[I; C](self: var ArcNode[I], f: proc(node: var I) {.noSideEffect, raises: [].}, cx: C): Option[I.summaryType] =
   self.makeUnique()
 
   case self.get.kind
@@ -505,28 +497,15 @@ func updateLastRecursive[I; C](self: var ArcNode[I], f: proc(node: var I) {.noSi
     else:
       I.summaryType.none
 
-func updateLast[I; C](self: var ArcNode[I], f: proc(node: var I) {.noSideEffect.}, cx: C) =
+func updateLast[I; C](self: var ArcNode[I], f: proc(node: var I) {.noSideEffect, raises: [].}, cx: C) =
   discard self.updateLastRecursive(f, cx)
 
-func updateLast*[I; C](self: var SumTree[I], f: proc(node: var I) {.noSideEffect.}, cx: C) =
+func updateLast*[I; C](self: var SumTree[I], f: proc(node: var I) {.noSideEffect, raises: [].}, cx: C) =
   self.root.updateLast(f, cx)
   self.checkInvariants()
 
 func pushTreeRecursive[I; C](self: var ArcNode[I], other: sink ArcNode[I], cx: C): Option[ArcNode[I]] =
   mixin addSummary
-
-  # template debugf(str: static string): untyped =
-  #   when debugAppend:
-  #     echo indent(&str, recursion)
-
-  when debugAppend:
-    recursion += 2
-    defer:
-      recursion -= 2
-
-  # debugf"pushTreeRecursive:\n- tree: {self.pretty.indent(1)}\n- other: {other.pretty.indent(1)}"
-  # debugf"pushTreeRecursive:- tree: {self}, other: {other}"
-  # debugf"{self.pretty}"
 
   template node: Node[I] = self.getMut
   self.makeUnique()
@@ -697,12 +676,6 @@ func pushTreeRecursive[I; C](self: var ArcNode[I], other: sink ArcNode[I], cx: C
 func fromChildTrees[I; C](_: typedesc[ArcNode[I]], left: sink ArcNode[I], right: sink ArcNode[I], cx: C): ArcNode[I] =
   mixin addSummary
 
-  # when debugAppend:
-  #   echo indent(&"--- fromChildTrees: {left}, {right}", recursion)
-    # echo indent(left.pretty, recursion)
-    # echo "---"
-    # echo indent(right.pretty, recursion)
-
   let height = left.get.height + 1
 
   var childSummaries: SummaryArray[I.summaryType]
@@ -727,19 +700,7 @@ func fromChildTrees[I; C](_: typedesc[ArcNode[I]], left: sink ArcNode[I], right:
     )
   )
 
-  # when debugAppend:
-  #   # echo "---"
-  #   echo indent(result.pretty, recursion)
-  #   echo indent("--> fromChildTrees", recursion)
-
 func append*[I; C](self: var ArcNode[I], other: sink ArcNode[I], cx: C) =
-  # when debugAppend:
-  #   echo indent(&"append {self}, {other}", recursion)
-
-  #   recursion += 2
-  #   defer:
-  #     recursion -= 2
-
   if self.isEmpty:
     self = other.move
   elif other.get.isInternal or other.get.mItemArray.len > 0:
@@ -845,7 +806,7 @@ func initCursor*[I](self {.byref.}: SumTree[I]): Cursor[I, tuple[]] =
   result.position = ()
   result.atEnd = self.root.isEmpty
 
-func filter*[I, D](self: sink Cursor[I, D], filter: proc(summary: I.summaryType): bool {.noSideEffect.}): FilterCursor[I, D] =
+func filter*[I, D](self: sink Cursor[I, D], filter: proc(summary: I.summaryType): bool {.noSideEffect, raises: [].}): FilterCursor[I, D] =
   result.cursor = self
   result.filterNode = filter
 
@@ -1033,7 +994,7 @@ func suffix*[I; D; C](self: var Cursor[I, D], cx: C): SumTree[I] =
   ## to the end. #todo: current node included?
   self.slice(End[D](), Right, cx)
 
-func nextInternal[I; D; C; S](self: var Cursor[I, D], filterNode: proc(s: S): bool {.noSideEffect.}, cx: C) =
+func nextInternal[I; D; C; S](self: var Cursor[I, D], filterNode: proc(s: S): bool {.noSideEffect, raises: [].}, cx: C) =
   ## Moves the cursor to the next leaf
   mixin addSummary
 
@@ -1119,7 +1080,7 @@ func next*[I; D; C](self: var Cursor[I, D], cx: C) =
   ## Moves the cursor to the next leaf
   self.nextInternal((_: I.summaryType) => true, cx)
 
-func prevInternal[I; D; C](self: var Cursor[I, D], filterNode: proc(s: I.summaryType): bool {.noSideEffect.}, cx: C) =
+func prevInternal[I; D; C](self: var Cursor[I, D], filterNode: proc(s: I.summaryType): bool {.noSideEffect, raises: [].}, cx: C) =
   ## Moves the cursor to the prev leaf
   mixin addSummary
 

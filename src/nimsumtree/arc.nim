@@ -71,6 +71,8 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
 
   deallocShared(a.data)
 
+func isNil*[T](arc {.byref.}: Arc[T]): bool = arc.data.isNil
+
 func `$`*[T](arc {.byref.}: Arc[T]): string =
   when debugCustomArcId or debugCustomArc:
     "Arc(_" & $arc.data[].id & ", #" &  $arc.data[].count.load & ", " & $arc.data[].value & ")"
@@ -147,7 +149,10 @@ func getMut*[T](a: var Arc[T]): var T =
 
 func get*[T](a: Arc[T]): lent T =
   assert a.data != nil
-  # assert a.count == 1
+  a.data[].value
+
+func getMutUnsafe*[T](a: Arc[T]): var T =
+  assert a.data != nil
   a.data[].value
 
 var arcUniqueCount*: int = 0

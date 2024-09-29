@@ -2,6 +2,9 @@ import std/[strformat, os, strformat, options]
 import nimsumtree/[sumtree]
 import uni
 
+{.push gcsafe.}
+{.push raises: [].}
+
 var ropeDebugLog* = true
 
 const ropeChunkBase {.intdefine.} = 0
@@ -896,13 +899,15 @@ func slice*[D](self: Rope, range: Range[D], bias: Bias = Bias.Right): RopeSlice[
   RopeSlice[D](rope: self.clone(), summary: summary, range: range)
 
 func slice*[D, D2](self: RopeSlice[D2], range: Range[D], bias: Bias = Bias.Right): RopeSlice[D] {.inline.} =
+  assert range.b >= range.a
   var c = self.cursor(range.a)
   let summary = c.summary(TextSummary, range.b)
   let start = self.rope.convert(self.range.a, D)
   RopeSlice[D](rope: self.rope.clone(), summary: summary, range: (range.a + start)...(range.b + start))
 
 func suffix*[D, D2](self: RopeSlice[D2], start: D): RopeSlice[D] {.inline.} =
-  return self.slice(start...D.fromSummary(self.summary, ()))
+  let last = D.fromSummary(self.summary, ())
+  return self.slice(min(start, last)...last)
 
 func `[]`*[D, D2](self: var RopeSlice[D2], range: Range[D]): RopeSlice[D] {.inline.} =
   self.slice(range, Right)
@@ -1469,7 +1474,6 @@ func find*[D](self: RopeSlice[D], sub: string, start: Natural = 0): int {.inline
     var i = subLast
 
     if c.position > skip + i:
-      debugEcho "reset 1"
       c.reset()
     c.seekForward(skip + i)
 
@@ -1480,8 +1484,7 @@ func find*[D](self: RopeSlice[D], sub: string, start: Natural = 0): int {.inline
       c.seekPrevRune()
 
     if c.position > skip + subLast:
-      debugEcho "reset 2"
       c.reset()
-
     c.seekForward(skip + subLast)
+
     inc skip, skipTable[c.currentChar]

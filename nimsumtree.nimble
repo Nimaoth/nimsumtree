@@ -3,7 +3,7 @@
 when defined(nimsuggest):
   import system/nimscript
 
-version       = "0.3.3"
+version       = "0.3.4"
 author        = "Nimaoth"
 description   = "Sum trees/ropes/text crdt for Nim"
 license       = "MIT"

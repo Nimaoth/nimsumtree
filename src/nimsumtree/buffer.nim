@@ -1559,7 +1559,6 @@ func snapshot*(self: Buffer): lent BufferSnapshot = self.snapshot
 func visibleText*(self: Buffer): lent Rope = self.snapshot.visibleText
 
 {.pop.} # raises: []
-{.pop.} # gcsafe
 
 import std/[json, jsonutils]
 

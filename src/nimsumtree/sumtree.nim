@@ -131,6 +131,8 @@ proc `=dup`*[I](a: Node[I]): Node[I] {.error.}
 proc `=copy`*[I](a: var SumTree[I], b: SumTree[I]) {.error.}
 proc `=dup`*[I](a: SumTree[I]): SumTree[I] {.error.}
 
+func isNil*[I](a: SumTree[I]): bool {.inline.} = a.root.isNil
+
 func `$`*[I](node {.byref.}: Node[I]): string =
   case node.kind:
   of Internal:

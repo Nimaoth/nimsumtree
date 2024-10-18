@@ -285,9 +285,9 @@ type
   OperationKind* {.pure.} = enum Edit, Undo
   Operation* = object
     case kind*: OperationKind
-    of Edit:
+    of OperationKind.Edit:
       edit*: EditOperation
-    of Undo:
+    of OperationKind.Undo:
       undo*: UndoOperation
 
   UndoMap* = object
@@ -336,17 +336,17 @@ proc clone*(a: EditOperation): EditOperation =
   result.ranges = a.ranges
   result.textKind = a.textKind
   case a.textKind
-  of String:
+  of EditOperationStringKind.String:
     result.newStrings = a.newStrings
-  of Rope:
+  of EditOperationStringKind.Rope:
     result.newRopes = collect:
       for r in a.newRopes:
         r.clone()
 
 proc clone*(a: Operation): Operation =
   case a.kind
-  of Edit: Operation(kind: Edit, edit: a.edit.clone())
-  of Undo: Operation(kind: Undo, undo: a.undo)
+  of OperationKind.Edit: Operation(kind: OperationKind.Edit, edit: a.edit.clone())
+  of OperationKind.Undo: Operation(kind: OperationKind.Undo, undo: a.undo)
 
 proc edit*[D, S](self: var Buffer, edits: openArray[tuple[range: Range[D], text: S]]): Operation
 func wasVisible(self: Fragment, version: Global, undoMap: UndoMap): bool
@@ -377,23 +377,23 @@ func toPoint*[D](range: Range[D], snapshot: BufferSnapshot): Range[Point] = rang
 
 func newTextLen*(edit: EditOperation, index: int): int =
   case edit.textKind
-  of String:
+  of EditOperationStringKind.String:
     edit.newStrings[index].len
-  of Rope:
+  of EditOperationStringKind.Rope:
     edit.newRopes[index].len
 
 func version*(op: Operation): Global =
   case op.kind
-  of Edit:
+  of OperationKind.Edit:
     op.edit.version
-  of Undo:
+  of OperationKind.Undo:
     op.undo.version
 
 func timestamp*(op: Operation): Lamport =
   case op.kind
-  of Edit:
+  of OperationKind.Edit:
     op.edit.timestamp
-  of Undo:
+  of OperationKind.Undo:
     op.undo.timestamp
 
 func `$`*(self: Buffer): string =
@@ -489,6 +489,9 @@ func summaryForAnchor(self: BufferSnapshot, D: typedesc, anchor: Anchor, resolve
   if cursor.item.isSome:
     let insertion {.cursor.} = cursor.item.get[]
     if insertion.timestamp != anchor.timestamp:
+      {.cast(noSideEffect).}:
+        writeStackTrace()
+      debugEcho &"{insertion.timestamp} != {anchor.timestamp}"
       return D.none
     assert insertion.timestamp == anchor.timestamp
     var fragmentCursor = self.fragments.initCursor (Option[Locator], int)
@@ -1091,9 +1094,9 @@ proc applyRemoteEdit(self: var Buffer, edit: sink EditOperation) =
           newFragments.add(fragment, ())
 
           case edit.textKind
-          of String:
+          of EditOperationStringKind.String:
             ropeBuilder.add(edit.newStrings[editIndex].move)
-          of Rope:
+          of EditOperationStringKind.Rope:
             ropeBuilder.add(edit.newRopes[editIndex].move)
 
           insertionOffset += newTextLen
@@ -1129,7 +1132,7 @@ proc applyRemoteEdit(self: var Buffer, edit: sink EditOperation) =
 
 proc applyOp(self: var Buffer, op: sink Operation): bool =
   case op.kind
-  of Edit:
+  of OperationKind.Edit:
     let timestamp = op.edit.timestamp
     if not self.snapshot.version.observed(timestamp):
       self.applyRemoteEdit(op.edit.move)
@@ -1137,7 +1140,7 @@ proc applyOp(self: var Buffer, op: sink Operation): bool =
       self.timestamp.observe(timestamp)
       discard self.timestamp.tick() # todo: necessary?
 
-  of Undo:
+  of OperationKind.Undo:
     if not self.snapshot.version.observed(op.undo.timestamp):
       if not self.applyUndo(op.undo):
         return false
@@ -1576,22 +1579,22 @@ proc fromJsonHook*(a: var EditOperation, b: JsonNode, opt = Joptions()) =
     longestString = max(longestString, text.str.len)
 
   if longestString > treeBase * chunkBase:
-    a.textKind = Rope
+    a.textKind = EditOperationStringKind.Rope
     for text in newTexts.elems:
       a.newRopes.add Rope.new(text.str)
 
   else:
-    a.textKind = String
+    a.textKind = EditOperationStringKind.String
     for text in newTexts.elems:
       a.newStrings.add text.str
 
 proc toJsonHook*(a: EditOperation): JsonNode =
   var newTexts = newJArray()
   case a.textKind
-  of String:
+  of EditOperationStringKind.String:
     for s in a.newStrings:
       newTexts.elems.add %s
-  of Rope:
+  of EditOperationStringKind.Rope:
     for s in a.newRopes:
       newTexts.elems.add(% $s)
 
@@ -1628,19 +1631,19 @@ proc toJsonHook*(a: UndoOperation): JsonNode =
 proc fromJsonHook*(a: var Operation, b: JsonNode, opt = Joptions()) =
   a = Operation(kind: b["kind"].jsonTo(typeof(a.kind)))
   case a.kind
-  of Edit:
+  of OperationKind.Edit:
     a.edit = b["edit"].jsonTo(typeof(a.edit))
-  of Undo:
+  of OperationKind.Undo:
     a.undo = b["undo"].jsonTo(typeof(a.undo))
 
 proc toJsonHook*(a: Operation): JsonNode =
   case a.kind
-  of Edit:
+  of OperationKind.Edit:
     return %*{
       "kind": a.kind,
       "edit": a.edit.toJsonHook(),
     }
-  of Undo:
+  of OperationKind.Undo:
     return %*{
       "kind": a.kind,
       "undo": a.undo.toJsonHook(),

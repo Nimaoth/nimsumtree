@@ -385,6 +385,58 @@ func new*[I](_: typedesc[SumTree[I]]): SumTree[I] =
 func clone*[I](a {.byref.}: SumTree[I]): SumTree[I] =
   a.root.clone().toTree
 
+proc new*[I, C](_: typedesc[SumTree[I]], fillItems: proc(items: var ItemArray[I]) {.gcsafe, raises: [].}, cx: C): SumTree[I] =
+  mixin summary
+  mixin `+=`
+  mixin addSummary
+
+  var nodes: seq[Arc[Node[I]]]
+  var subItems: Array[I, treeBase]
+  while true:
+    fillItems(subItems)
+    if subItems.len == 0:
+      break
+
+    var summaries: SummaryArray[I.summaryType] = subItems.mapIt(it.summary)
+    var s: I.summaryType = summaries[0].clone()
+    for k in 1..summaries.high:
+      s.addSummary(summaries[k], cx)
+
+    nodes.add Arc.new(Node[I](kind: Leaf, mSummary: s, mItemArray: subItems.move, mSummaries: summaries.move))
+
+  var parentNodes: seq[Arc[Node[I]]] = @[]
+  var height: HeightType = 0
+  while nodes.len > 1:
+    inc height
+    var currentParentNode: Arc[Node[I]]
+    var tempNodes = nodes.move
+    for childNode in tempNodes.mitems:
+      if currentParentNode.isNil:
+        currentParentNode = Arc.new(Node[I](
+          kind: Internal, mSummary: I.summaryType.default, mHeight: height
+        ))
+
+      let childSummary = childNode.get.summary
+      currentParentNode.getMut.mSummary.addSummary(childSummary, cx)
+      currentParentNode.getMut.mSummaries.add childSummary
+      currentParentNode.getMut.mChildren.add childNode.move
+
+      if currentParentNode.get.mChildren.len == treeBase:
+        parentNodes.add currentParentNode.move
+        currentParentNode = Arc[Node[I]]()
+
+    if not currentParentNode.isNil:
+      parentNodes.add currentParentNode.move
+      currentParentNode = Arc[Node[I]]()
+
+    nodes = parentNodes.move
+
+  if nodes.len == 0:
+    result = Arc.new(newLeaf[I]()).toTree
+  else:
+    assert nodes.len == 1
+    result = nodes[0].toTree
+
 func new*[I, C](_: typedesc[SumTree[I]], items: sink seq[I], cx: C): SumTree[I] =
   mixin summary
   mixin `+=`

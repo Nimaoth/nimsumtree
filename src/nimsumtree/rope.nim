@@ -1,6 +1,8 @@
 import std/[strformat, os, strformat, options]
-import nimsumtree/[sumtree]
+import nimsumtree/[sumtree, static_array]
 import uni
+
+export static_array
 
 {.push gcsafe.}
 {.push raises: [].}
@@ -87,6 +89,7 @@ template chars*(self: Chunk, first, last: int): openArray[char] = self.data.toOp
 template chars*(self: ptr Chunk, first, last: int): openArray[char] = self.data.toOpenArray(first, last)
 template chars*(self: ChunkSlice): openArray[char] = self.chunk[].data.toOpenArray[self.range.a..<self.range.b]
 template chars*(self: ptr ChunkSlice): openArray[char] = self.chunk[].data.toOpenArray[self.range.a..<self.range.b]
+func startPtr*(self: ChunkSlice): ptr char = self.chunk[].data[0].addr
 
 func `$`*(r: Chunk): string {.inline.} =
   result = "["
@@ -725,6 +728,48 @@ func new*(_: typedesc[Rope], value: openArray[char]): Rope =
     i = last
 
   result.tree = SumTree[Chunk].new(chunks, ())
+
+proc new*(_: typedesc[Rope], producer: proc(buffer: var string, bytesToRead: int) {.gcsafe, raises: [].}, errorIndex: var int): Option[Rope] =
+  var buffer = ""
+  var invalidUtf8Index = -1
+  var offset = 0
+  proc fillItems(items: var ItemArray[Chunk]) {.gcsafe, raises: [].} =
+    if invalidUtf8Index >= 0:
+      return
+
+    for i in 0..<treeBase:
+      assert buffer.len < chunkBase
+
+      producer(buffer, chunkBase - buffer.len + 4) # + 4 because we need to check for splitting utf8 code points later
+      assert buffer.len <= chunkBase + 4
+
+      if buffer.len == 0:
+        return
+
+      let targetLast = min(chunkBase, buffer.len)
+      let last = buffer.runeStart(targetLast)
+      if last < targetLast - 3: # UTF codepoints are at most 4 bytes, so the start index is at most 3 bytes to the left
+        invalidUtf8Index = max(last, 0)
+      elif invalidUtf8Index == -1:
+        invalidUtf8Index = buffer.toOpenArray(0, last - 1).validateUtf8
+      if invalidUtf8Index >= 0:
+        return
+
+      items.add Chunk(data: buffer.toOpenArray(0, last - 1).toArray(chunkBase))
+      offset += last
+
+      if last < buffer.len:
+        buffer.delete(0..<last.int)
+      else:
+        buffer.setLen(0)
+
+  var tree = SumTree[Chunk].new(fillItems, ())
+  if invalidUtf8Index != -1:
+    errorIndex = offset + invalidUtf8Index
+    return Rope.none
+  else:
+    errorIndex = -1
+    return Rope(tree: tree.move).some
 
 func toRope*(value: openArray[char]): Rope {.inline.} =
   Rope.new(value)

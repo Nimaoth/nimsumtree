@@ -954,7 +954,7 @@ func suffix*[D, D2](self: RopeSlice[D2], start: D): RopeSlice[D] {.inline.} =
   let last = D.fromSummary(self.summary, ())
   return self.slice(min(start, last)...last)
 
-func `[]`*[D, D2](self: var RopeSlice[D2], range: Range[D]): RopeSlice[D] {.inline.} =
+func `[]`*[D, D2](self: RopeSlice[D2], range: Range[D]): RopeSlice[D] {.inline.} =
   self.slice(range, Right)
 
 func validateOffset*(self: Rope, offset: int, bias: Bias, debug = false): int =

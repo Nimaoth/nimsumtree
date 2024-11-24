@@ -359,15 +359,10 @@ func pointToOffset*(self: Chunk, target: Point): int =
   var point = Point()
   for r in self.chars.runes:
     if point >= target:
-      assert point == target, &"Target {target} is inside of character '{r}'"
       break
 
     if r == '\n'.Rune:
       if point.row >= target.row:
-        # {.cast(noSideEffect).}:
-        #   if ropeDebugLog:
-        #     writeStackTrace()
-        #     debugEcho &"pointToOffset({target}) Target is beyond the end of a line with length {point.column}: '{self.chars}'"
         break
 
       point.row += 1
@@ -384,15 +379,10 @@ func pointToOffset*(self: Chunk, target: Point, bias: Bias): int =
       if bias == Right:
         return
 
-      assert point == target, &"Target {target} is inside of character '{r}'"
       break
 
     if r == '\n'.Rune:
       if point.row >= target.row:
-        # {.cast(noSideEffect).}:
-        #   if ropeDebugLog:
-        #     writeStackTrace()
-        #     debugEcho &"pointToOffset({target}, {bias}) Target is beyond the end of a line with length {point.column}: '{self.chars}'"
         break
 
       point.row += 1
@@ -409,7 +399,6 @@ func pointToCount*(self: Chunk, target: Point): Count =
   var point = Point()
   for r in self.chars.runes:
     if point >= target:
-      assert point == target, &"Target {target} is inside of character '{r}'"
       break
 
     if r == '\n'.Rune:
@@ -417,7 +406,6 @@ func pointToCount*(self: Chunk, target: Point): Count =
       point.column = 0
 
       if point.row > target.row:
-        assert false, &"Target {target} is beyond the end of a line with length {point.column}"
         break
     else:
       point.column += r.size.uint32

@@ -490,7 +490,7 @@ proc testN(iterations: int) =
     check c1.summary((Count, Max), 4.Count, Right, ()) == (1.Count, 5.Max)
     check c1.summary((Count, Max), 4.Count, Right, ()) == (0.Count, 0.Max)
 
-    c1.reset()
+    c1.resetCursor()
     check c1.summary((Count, Max), 3.Count, Right, ()) == (3.Count, 3.Max)
     check c1.summary((Count, Max), 3.Count, Right, ()) == (0.Count, 0.Max)
     check c1.summary((Count, Max), End[(Count, Max)](), Right, ()) == (3.Count, 6.Max)
@@ -504,35 +504,35 @@ proc testN(iterations: int) =
     var c1 = a.initCursor (Count, Max)
     check c1.summary((Count, Max), 0.Count, Right, ()) == (0.Count, 0.Max)
     check c1.summary((Count, Max), 0.Count, Right, ()) == (0.Count, 0.Max)
-    c1.reset()
+    c1.resetCursor()
 
     check c1.summary((Count, Max), 1.Count, Right, ()) == (1.Count, 2.Max)
     check c1.summary((Count, Max), 1.Count, Right, ()) == (0.Count, 0.Max)
-    c1.reset()
+    c1.resetCursor()
 
     check c1.summary((Count, Max), 2.Count, Right, ()) == (2.Count, 3.Max)
     check c1.summary((Count, Max), 2.Count, Right, ()) == (0.Count, 0.Max)
-    c1.reset()
+    c1.resetCursor()
 
     check c1.summary((Count, Max), 3.Count, Right, ()) == (3.Count, 3.Max)
     check c1.summary((Count, Max), 3.Count, Right, ()) == (0.Count, 0.Max)
-    c1.reset()
+    c1.resetCursor()
 
     check c1.summary((Count, Max), 4.Count, Right, ()) == (4.Count, 5.Max)
     check c1.summary((Count, Max), 4.Count, Right, ()) == (0.Count, 0.Max)
-    c1.reset()
+    c1.resetCursor()
 
     check c1.summary((Count, Max), 5.Count, Right, ()) == (5.Count, 5.Max)
     check c1.summary((Count, Max), 5.Count, Right, ()) == (0.Count, 0.Max)
-    c1.reset()
+    c1.resetCursor()
 
     check c1.summary((Count, Max), 6.Count, Right, ()) == (6.Count, 6.Max)
     check c1.summary((Count, Max), 6.Count, Right, ()) == (0.Count, 0.Max)
-    c1.reset()
+    c1.resetCursor()
 
     check c1.summary((Count, Max), End[(Count, Max)](), Right, ()) == (6.Count, 6.Max)
     check c1.summary((Count, Max), End[(Count, Max)](), Right, ()) == (0.Count, 0.Max)
-    c1.reset()
+    c1.resetCursor()
 
   customTest "Cursor summary large C=" & $treeBase:
     var numbers = newSeq[int]()

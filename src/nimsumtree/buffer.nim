@@ -927,7 +927,7 @@ type RopeBuilder = object
   newVisible: Rope
   newDeleted: Rope
 
-proc initRopeBuilder(oldVisibleCursor, oldDeletedCursor: RopeCursor): RopeBuilder =
+proc initRopeBuilder(oldVisibleCursor, oldDeletedCursor: sink RopeCursor): RopeBuilder =
   result.oldVisibleCursor = oldVisibleCursor
   result.oldDeletedCursor = oldDeletedCursor
   result.newVisible = Rope.new()
@@ -974,6 +974,9 @@ proc add(self: var RopeBuilder, content: string) =
 
 proc add(self: var RopeBuilder, content: sink Rope) =
   self.newVisible.add content
+
+proc add[T](self: var RopeBuilder, content: sink RopeSlice[T]) =
+  self.newVisible.add content.toRope()
 
 proc add(self: var RopeBuilder, len: FragmentTextSummary) =
   self.add(len.visible, true, true)

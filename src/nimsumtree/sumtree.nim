@@ -131,6 +131,12 @@ proc `=dup`*[I](a: Node[I]): Node[I] {.error.}
 proc `=copy`*[I](a: var SumTree[I], b: SumTree[I]) {.error.}
 proc `=dup`*[I](a: SumTree[I]): SumTree[I] {.error.}
 
+# proc `=copy`*[I, D](a: var StackEntry[I, D], b: StackEntry[I, D]) {.error.}
+# proc `=dup`*[I, D](a: StackEntry[I, D]): StackEntry[I, D] {.error.}
+
+# proc `=copy`*[I, D](a: var Cursor[I, D], b: Cursor[I, D]) {.error.}
+# proc `=dup`*[I, D](a: Cursor[I, D]): Cursor[I, D] {.error.}
+
 func isNil*[I](a: SumTree[I]): bool {.inline.} = a.root.isNil
 
 func `$`*[I](node {.byref.}: Node[I]): string =
@@ -874,7 +880,7 @@ func clone*[I, D](a {.byref.}: Cursor[I, D]): Cursor[I, D] =
 func assertDidSeek*(self: Cursor) =
   assert self.didSeek
 
-func reset*(self: var Cursor) =
+func resetCursor*(self: var Cursor) =
   ## Reset the cursor to the beginning
   self.didSeek = false
   self.atEnd = self.node.isEmpty
@@ -1012,12 +1018,13 @@ func seekInternal[I; D; T; A; C](self: var Cursor[I, D], target: T, bias: Bias, 
 func seek*[I; D; T; C](self: var Cursor[I, D], target: T, bias: Bias, cx: C): bool =
   ## Resets and moves the cursor to the target. Returns true if the target position was found
 
-  self.reset()
+  self.resetCursor()
   var agg = ()
   self.seekInternal(target, bias, agg, cx)
 
 func seekForward*[I; D; T; C](self: var Cursor[I, D], target: T, bias: Bias, cx: C): bool =
   ## Moves the cursor to the target. Returns true if the target position was found
+  assert not self.node.isNil
 
   var agg = ()
   self.seekInternal(target, bias, agg, cx)

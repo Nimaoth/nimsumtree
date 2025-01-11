@@ -39,25 +39,36 @@ func last*[T; C: static int](arr {.byref.}: Array[T, C]): Option[ptr T] =
   if arr.len > 0:
     result = arr.data[arr.high].addr.some
 
-func add*[T; C: static int](arr: var Array[T, C], val: sink T) =
+func add*[T; C: static int](arr: var Array[T, C], val: sink T) {.nodestroy.} =
   assert C <= typeof(Array[T, C].default.len).high
   assert arr.len < C
-  arr.data[arr.len.int] = val.move
+  arr.data[arr.len.int] = val.ensureMove
   inc arr.len
 
-func add*[T; C: static int](arr: var Array[T, C], vals: sink Array[T, C]) =
+func add*[T; C: static int](arr: var Array[T, C], vals: sink Array[T, C]) {.nodestroy.} =
   assert C <= typeof(Array[T, C].default.len).high
   assert arr.len + vals.len <= C
   for i in 0..vals.high:
-    arr.data[arr.len.int + i] = vals.data[i].move
+    arr.data[arr.len.int + i] = vals.data[i].ensureMove
   arr.len += vals.len
 
-func add*[T; C: static int](arr: var Array[T, C], vals: openArray[T]) =
+func add*[T; C: static int](arr: var Array[T, C], vals: openArray[T]) {.nodestroy.} =
   assert C <= typeof(Array[T, C].default.len).high
   assert arr.len.int + vals.len <= C
   for i in 0..vals.high:
     arr.data[arr.len.int + i] = vals[i]
   arr.len += typeof(arr.len)(vals.len)
+
+func shift*[T; C: static int](arr: var Array[T, C], start: int, offset: int) {.nodestroy.} =
+  assert C <= typeof(Array[T, C].default.len).high
+  if offset > 0:
+    arr.len = (arr.len.int + offset).uint16
+    for i in countdown(arr.high, start):
+      arr.data[i + offset] = arr.data[i]
+  elif offset < 0:
+    for i in start..arr.high:
+      arr.data[i + offset] = arr.data[i]
+    arr.len = (arr.len.int + offset).uint16
 
 macro evalOnceAs(expAlias, exp: untyped,
                  letAssigneable: static[bool]): untyped =
@@ -114,7 +125,7 @@ template toOpenArray*[T; C: static int](arr: Array[T, C]): openArray[T] =
 template toOpenArray*[T; C: static int](arr: Array[T, C], first, last: int): openArray[T] =
   arr.data.toOpenArray(first, last)
 
-proc clone*[T: Clone; C: static int](arr: Array[T, C]): Array[T, C] =
+proc clone*[T: Clone; C: static int](arr: Array[T, C]): Array[T, C] {.noinit, nodestroy.} =
   result.len = arr.len
   for i in 0..<arr.len.int:
     result.data[i] = arr.data[i].clone()

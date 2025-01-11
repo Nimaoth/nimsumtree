@@ -132,7 +132,7 @@ func changedSince*(self: Global, other: Global): bool =
   for i in 0..<min(self.len, other.len):
     if self.asBase[i] > other.asBase[i]:
       return true
-  return true
+  return false
 
 func default*(_: typedesc[Locator]): Locator = Locator(path: @[uint64.low])
 
@@ -168,6 +168,7 @@ func `$`*(self: Locator): string =
 
 proc between*(a, b: Locator): Locator =
   assert a < b
+  result = Locator(path: newSeqOfCap[uint64](max(a.path.len, b.path.len) + 1))
   for i in 0..int.high:
     let lhs: uint64 = if i < a.len: a.path[i] else: uint64.low
     let rhs: uint64 = if i < b.len: b.path[i] else: uint64.high

@@ -16,9 +16,12 @@ when debugCustomArc or debugCustomArcId:
 when debugCustomArcLeaks:
   var activeArcs = 0
 
-proc assertNoLeaks*() {.noSideEffect.} =
+func assertNoLeaks*() {.noSideEffect.} =
   when debugCustomArcLeaks:
-    assert activeArcs == 0
+    {.cast(noSideEffect).}:
+      if activeArcs != 0:
+        echo "activeArcs: ", activeArcs
+        assert activeArcs != 0
 
 type
   ArcData[T] {.acyclic.} = object
@@ -38,12 +41,12 @@ proc `=trace`*[T](a: var Arc[T], env: pointer) =
     `=trace`(a.data[].value, env)
 
 var arcCount*: int = 0
-proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
+func `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline.} =
   if a.data == nil:
     return
 
   when debugCustomArc:
-    echo "Arc.destroy _", a.data[].id, ", count: ", a.data[].count.load
+    debugEcho "Arc.destroy _", a.data[].id, ", count: ", a.data[].count.load
 
   if a.data[].count.fetchSub(1, moRelease) != 1:
     return
@@ -53,9 +56,11 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [].} =
   fence(moAcquire)
 
   when debugCustomArcLeaks:
-    dec activeArcs
+    {.cast(noSideEffect).}:
+      dec activeArcs
 
   when debugCustomArc:
+    debugEcho "Arc.destroy _", a.data[].id, ", count is zero, dealloc"
     echo "Arc.destroy _", a.data[].id, ", count: ", a.data[].count.load
 
   {.cast(noSideEffect).}:
@@ -87,14 +92,14 @@ func new*[T](_: typedesc[Arc], default: sink T): Arc[T] =
 
   {.cast(noSideEffect).}:
     arcCount.inc
-
-  when debugCustomArcId or debugCustomArc:
-    inc idCounter
-    when debugCustomArc:
-      echo "Arc.new _", idCounter
-    result.data[].id = idCounter
+    when debugCustomArcId or debugCustomArc:
+      inc idCounter
+      when debugCustomArc:
+        debugEcho "Arc.new _", idCounter
+      result.data[].id = idCounter
   when debugCustomArcLeaks:
-    inc activeArcs
+    {.cast(noSideEffect).}:
+      inc activeArcs
 
 func new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
   {.cast(noSideEffect).}: # todo: Verify if this is safe
@@ -104,14 +109,14 @@ func new*[T](_: typedesc[Arc[T]], default: sink T): Arc[T] =
 
   {.cast(noSideEffect).}:
     arcCount.inc
-
-  when debugCustomArcId or debugCustomArc:
-    inc idCounter
-    when debugCustomArc:
-      echo "Arc.new _", idCounter
-    result.data[].id = idCounter
+    when debugCustomArcId or debugCustomArc:
+      inc idCounter
+      when debugCustomArc:
+        debugEcho "Arc.new _", idCounter
+      result.data[].id = idCounter
   when debugCustomArcLeaks:
-    inc activeArcs
+    {.cast(noSideEffect).}:
+      inc activeArcs
 
 func new*[T](A: typedesc[Arc[T]]): Arc[T] = A.new(T.default)
 func new*(A: typedesc[Arc], T: typedesc): Arc[T] = A.new(T.default)
@@ -125,7 +130,7 @@ func clone*[T](a {.byref.}: Arc[T]): Arc[T] =
   result.data = a.data
 
   when debugCustomArc:
-    echo "Arc.clone _", a.data[].id, " -> ", a.data[].count.load
+    debugEcho "Arc.clone _", a.data[].id, " -> ", a.data[].count.load
 
 func id*[T](a: Arc[T]): int =
   when debugCustomArcId or debugCustomArc:
@@ -167,7 +172,7 @@ func makeUnique*[T](a: var Arc[T]) =
 
     var b = Arc.new(a.data[].value.clone())
     when debugCustomArc:
-      echo &"Arc.makeUnique {a} -> {b}"
+      debugEcho &"Arc.makeUnique {a} -> {b}"
 
     a = b.move
     {.cast(noSideEffect).}:

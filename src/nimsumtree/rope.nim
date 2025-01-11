@@ -37,8 +37,8 @@ type
     column*: uint32 ## In bytes
 
   PointDiff* = object
-    a: Point
-    b: Point
+    a*: Point
+    b*: Point
 
   TextSummary* = object
     bytes*: int
@@ -80,8 +80,12 @@ func `==`*(a: Count32, b: Count32): bool {.borrow.}
 func `<`*(a: Count32, b: Count32): bool {.borrow.}
 func `<=`*(a: Count32, b: Count32): bool {.borrow.}
 
-func `...`*[T](a, b: T): Range[T] = Range[T](a: a, b: b)
-func len*[T](r: Range[T]): T = r.b - r.a
+func `$`*[T](a: Range[T]): string {.inline.} = $a.a & "..." & $a.b
+func `...`*[T](a, b: T): Range[T] {.inline.} = Range[T](a: a, b: b)
+func len*[T](r: Range[T]): T {.inline.} = r.b - r.a
+func `+`*[T](r: Range[T], t: T): Range[T] {.inline.} = (r.a + t)...(r.b + t)
+func `-`*[T](r: Range[T], t: T): Range[T] {.inline.} = (r.a - t)...(r.b - t)
+func `in`*[T](t: T, r: Range[T]): bool {.inline.} = t >= r.a and t <= r.b
 
 template chars*(self: Chunk): openArray[char] = self.data.toOpenArray
 template chars*(self: ptr Chunk): openArray[char] = self.data.toOpenArray
@@ -96,10 +100,22 @@ func `$`*(r: Chunk): string {.inline.} =
   result.add r.chars.join("")
   result.add "]"
 
+proc replace*(a: var Chunk, r: Range[int], text: openArray[char]) =
+  let added = text.len - r.len
+  a.data.shift(r.b, added)
+  for i in 0..text.high:
+    a.data[r.a + i] = text[i]
+
 func init*(_: typedesc[Point], row, column: int): Point {.inline.} =
   Point(row: row.uint32, column: column.uint32)
 
 func init*(_: typedesc[Point], row, column: uint32): Point {.inline.} =
+  Point(row: row, column: column)
+
+func point*(row, column: int): Point {.inline.} =
+  Point(row: row.uint32, column: column.uint32)
+
+func point*(row, column: uint32): Point {.inline.} =
   Point(row: row, column: column)
 
 func clone*(a: TextSummary): TextSummary {.inline.} = a
@@ -118,6 +134,9 @@ func addSummary*[C](a: var int, b: TextSummary, cx: C) {.inline.} = a += b.bytes
 func `+=`*(a: var int, b: TextSummary) {.inline.} = a += b.bytes
 func fromSummary*[C](_: typedesc[int], a: TextSummary, cx: C): int {.inline.} = a.bytes
 
+func `$`*(a: Point): string {.inline.} = $a.row & ":" & $a.column
+func `$`*(a: PointDiff): string {.inline.} = $a.a & "-" & $a.b
+
 func `<`*(a: Point, b: Point): bool {.inline.} =
   if a.row == b.row:
     return a.column < b.column
@@ -127,6 +146,8 @@ func `<=`*(a: Point, b: Point): bool {.inline.} =
   if a.row == b.row:
     return a.column <= b.column
   return a.row <= b.row
+
+func clamp*(p: Point, r: Range[Point]): Point = min(max(p, r.a), r.b)
 
 func `+=`*(a: var Point, b: Point) {.inline.} =
   a.row += b.row
@@ -197,6 +218,11 @@ func `+`*(point: Point, diff: PointDiff): Point =
       result.column = (point.column.int + diff.columns).uint32
     elif diff.rows > 0:
       result.column = diff.a.column + (point.column - diff.b.column)
+    else:
+      result.column = diff.a.column + (point.column - diff.b.column)
+
+func `+=`*(point: var Point, diff: PointDiff) =
+  point = point + diff
 
 func `-`*(a: Point, b: Point): PointDiff = PointDiff(a: a, b: b)
 
@@ -794,12 +820,27 @@ iterator iterateChunks*[D](self: RopeSlice[D]): ChunkSlice =
       yield slice
     c.next(())
 
+iterator iterateChunks*[D](self: Rope, range: Range[D]): ChunkSlice =
+  assert not self.tree.isNil
+  let range = self.toOffset(range.a)...self.toOffset(range.b)
+  var c = self.tree.initCursor(int)
+  discard c.seekForward(range.a, Bias.Right, ())
+  while c.item.isSome and c.startPos < range.b:
+    let sliceRange = max(range.a - c.startPos, 0)...(min(range.b, c.endPos(())) - c.startPos)
+    assert sliceRange.a in 0..c.item.get[].chars.len
+    assert sliceRange.b in 0..c.item.get[].chars.len
+    assert sliceRange.len >= 0
+    if sliceRange.len > 0:
+      let slice = ChunkSlice(chunk: c.item.get, range: sliceRange)
+      yield slice
+    c.next(())
+
 iterator runes*(self: RopeSlice): Rune =
   for slice in self.iterateChunks:
     for r in slice.chars.runes:
       yield r
 
-iterator chars*(self: RopeSlice): char=
+iterator chars*(self: RopeSlice): char =
   for slice in self.iterateChunks:
     for c in slice.chars:
       yield c
@@ -874,6 +915,9 @@ func add*(self: var Rope, rope: sink Rope) =
 
   self.tree.append(chunks.suffix(()), ())
   self.checkInvariants()
+
+func add*[D](self: var Rope, rope: sink RopeSlice[D]) =
+  self.add(rope.toRope)
 
 func addFront*(self: var Rope, text: openArray[char]) {.inline.} =
   let suffix = self.move

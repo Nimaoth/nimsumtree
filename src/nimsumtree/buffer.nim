@@ -328,6 +328,12 @@ proc `=dup`*(a: EditOperation): EditOperation {.error.}
 proc `=copy`*(a: var Operation, b: Operation) {.error.}
 proc `=dup`*(a: Operation): Operation {.error.}
 
+proc `=copy`*(a: var Buffer, b: Buffer) {.error.}
+proc `=dup`*(a: Buffer): Buffer {.error.}
+
+proc `=copy`*(a: var BufferSnapshot, b: BufferSnapshot) {.error.}
+proc `=dup`*(a: BufferSnapshot): BufferSnapshot {.error.}
+
 proc add*(x: var seq[Operation], y: sink seq[Operation]) {.noSideEffect.} = discard
 
 proc clone*(a: EditOperation): EditOperation =
@@ -578,7 +584,7 @@ func cmp*(a, b: Anchor, buffer: BufferSnapshot): int =
 func initEdit*[D](old, new: Range[D]): Edit[D] = Edit[D](old: old, new: new)
 
 func isEmpty*[D](self: Edit[D]): bool =
-  self.old.len == 0 and self.new.len == 0
+  self.old.len == D.default and self.new.len == D.default
 
 func flatten*[D1, D2](self: Edit[(D1, D2)]): (Edit[D1], Edit[D2]) =
   (
@@ -615,6 +621,14 @@ func add*[D](self: var Patch[D], edit: Edit[D]) =
       return
 
   self.edits.add edit
+
+func decompose*[D](self: Patch[D]): seq[Edit[D]] =
+  for edit in self.edits:
+    var newEdit = edit
+    newEdit.new.a = newEdit.old.a
+    let diff: D = (edit.new.b - edit.new.a)
+    newEdit.new.b = newEdit.new.a + diff
+    result.add newEdit
 
 func compose*[D](self: Patch[D], newEdits: openArray[Edit[D]]): Patch[D] =
   var oldEditsIndex = 0
@@ -723,7 +737,30 @@ func compose*[D](self: Patch[D], newEdits: openArray[Edit[D]]): Patch[D] =
     else:
       break
 
-proc binarySearchBy[T, K](a: openArray[T], key: K,
+proc convert*(patch: Patch[uint32], D: typedesc, oldText: Rope, newText: Rope): Patch[D] =
+  var co = oldText.cursorT(D)
+  var cn = newText.cursorT(D)
+
+  result.edits.setLen(patch.edits.len)
+
+  for i, edit in patch.edits:
+    co.seekForward(edit.old.a.int)
+    cn.seekForward(edit.new.a.int)
+
+    let startPosOld = co.position
+    let startPosNew = cn.position
+
+    if edit.old.len > 0:
+      co.seekForward(edit.old.b.int)
+
+    if edit.new.len > 0:
+      cn.seekForward(edit.new.b.int)
+
+    let endPosOld = co.position
+    let endPosNew = cn.position
+    result.edits[i] = Edit[D](old: startPosOld...endPosOld, new: startPosNew...endPosNew)
+
+proc binarySearchBy*[T, K](a: openArray[T], key: K,
                          cmp: proc (x: T, y: K): int {.closure.}): (bool, int) {.effectsOf: cmp.} =
   ## Binary search for `key` in `a`. Return the index of `key` and whether is was found
   ## Assumes that `a` is sorted according to `cmp`.
@@ -868,6 +905,7 @@ proc clone*(self: History): History =
 
 proc clone*(self: BufferSnapshot): BufferSnapshot =
   result.replicaId = self.replicaId
+  result.remoteId = self.remoteId
   result.fragments = self.fragments.clone()
   result.visibleText = self.visibleText.clone()
   result.deletedText = self.deletedText.clone()

@@ -12,159 +12,6 @@ template customTest(name: string, body): untyped =
     block:
       body
 
-customTest "seek end":
-  var a = SumTree[int].new(@[1, 2], ())
-  var c1 = a.initCursor
-  check not c1.seekForward(End[tuple[]](), Right, ())
-  check c1.didSeek
-  check c1.atEnd
-
-  a = SumTree[int].new(@[1, 2, 3, 4, 5], ())
-  c1 = a.initCursor
-  check not c1.seekForward(End[tuple[]](), Right, ())
-  check c1.didSeek
-  check c1.atEnd
-
-customTest "prev/next leaf":
-  var a = SumTree[int].new()
-  var c1 = a.initCursor
-  check c1.prevLeaf.isNone
-  check c1.nextLeaf.isNone
-
-  # One leaf
-  a = SumTree[int].new(@[1, 2], ())
-  c1 = a.initCursor
-  check a.isLeaf
-  check c1.prevLeaf.isNone
-  check c1.nextLeaf.isNone
-
-  c1.next(())
-  check c1.prevLeaf.isNone
-  check c1.nextLeaf.isNone
-
-  # One internal, multiple leafs
-  a = SumTree[int].new(@[1, 2, 3], ())
-  c1 = a.initCursor
-
-  when treeBase == 2:
-    check a.isInternal
-    check a.height == 1
-
-  c1.next(())
-  check c1.prevLeaf.isNone
-  when treeBase == 2:
-    check c1.nextLeaf.mapIt(@(it[].get.childItems)) == some @[3]
-
-  c1.next(())
-  check c1.prevLeaf.isNone
-  when treeBase == 2:
-    check c1.nextLeaf.mapIt(@(it[].get.childItems)) == some @[3]
-
-  c1.next(())
-  when treeBase == 2:
-    check c1.prevLeaf.mapIt(@(it[].get.childItems)) == some @[1, 2]
-  check c1.nextLeaf.isNone
-
-  c1.next(())
-  check c1.prevLeaf.isNone
-  check c1.nextLeaf.isNone
-
-customTest "prev/next item":
-  # One leaf
-  var a = SumTree[int].new(@[1, 2], ())
-  var c1 = a.initCursor
-
-  check c1.nextItem.mapIt(it[]) == 1.some
-
-  c1.next(())
-  check c1.prevItem.isNone
-  check c1.item.mapIt(it[]) == 1.some
-  check c1.nextItem.mapIt(it[]) == 2.some
-
-  c1.next(())
-  check c1.prevItem.mapIt(it[]) == 1.some
-  check c1.item.mapIt(it[]) == 2.some
-  check c1.nextItem.isNone
-
-  c1.next(())
-  check c1.prevItem.mapIt(it[]) == 2.some
-  check c1.item.isNone
-  check c1.nextItem.isNone
-
-  # One internal, multiple leafs
-  a = SumTree[int].new(@[1, 2, 3], ())
-  c1 = a.initCursor
-
-  check c1.nextItem.mapIt(it[]) == 1.some
-
-  c1.next(())
-  check c1.prevItem.isNone
-  check c1.item.mapIt(it[]) == 1.some
-  check c1.nextItem.mapIt(it[]) == 2.some
-
-  c1.next(())
-  check c1.prevItem.mapIt(it[]) == 1.some
-  check c1.item.mapIt(it[]) == 2.some
-  check c1.nextItem.mapIt(it[]) == 3.some
-
-  c1.next(())
-  check c1.prevItem.mapIt(it[]) == 2.some
-  check c1.item.mapIt(it[]) == 3.some
-  check c1.nextItem.isNone
-
-  c1.next(())
-  check c1.prevItem.mapIt(it[]) == 3.some
-  check c1.item.isNone
-  check c1.nextItem.isNone
-
-customTest "prev":
-  # One leaf
-  var a = SumTree[int].new(@[1, 2], ())
-  var c1 = a.initCursor
-
-  check c1.nextItem.mapIt(it[]) == 1.some
-
-  c1.prev(())
-  check c1.prevItem.mapIt(it[]) == 1.some
-  check c1.item.mapIt(it[]) == 2.some
-  check c1.nextItem.isNone
-
-  c1.prev(())
-  check c1.prevItem.isNone
-  check c1.item.mapIt(it[]) == 1.some
-  check c1.nextItem.mapIt(it[]) == 2.some
-
-  c1.prev(())
-  check c1.prevItem.isNone
-  check c1.item.isNone
-  check c1.nextItem.mapIt(it[]) == 1.some
-
-  # One internal, multiple leafs
-  a = SumTree[int].new(@[1, 2, 3], ())
-  c1 = a.initCursor
-
-  check c1.nextItem.mapIt(it[]) == 1.some
-
-  c1.prev(())
-  check c1.prevItem.mapIt(it[]) == 2.some
-  check c1.item.mapIt(it[]) == 3.some
-  check c1.nextItem.isNone
-
-  c1.prev(())
-  check c1.prevItem.mapIt(it[]) == 1.some
-  check c1.item.mapIt(it[]) == 2.some
-  check c1.nextItem.mapIt(it[]) == 3.some
-
-  c1.prev(())
-  check c1.prevItem.isNone
-  check c1.item.mapIt(it[]) == 1.some
-  check c1.nextItem.mapIt(it[]) == 2.some
-
-  c1.prev(())
-  check c1.prevItem.isNone
-  check c1.item.isNone
-  check c1.nextItem.mapIt(it[]) == 1.some
-
 proc testAppend(iterations: int, singleOwner: bool, base: int, balance: int) =
   # echo &"Append two trees 1 (single owner = {singleOwner}, base: {base}, bal: {balance}) C={$C}"
   var numbers1: seq[int]
@@ -587,6 +434,159 @@ proc testN(iterations: int) =
           discard c.seek(start.Count, Right, ())
           let b = c.slice((start + windowSize).Count, Right, ())
           check b.toSeq(()) == numbers[start..<(start + windowSize)]
+
+customTest "seek end":
+  var a = SumTree[int].new(@[1, 2], ())
+  var c1 = a.initCursor
+  check not c1.seekForward(End[tuple[]](), Right, ())
+  check c1.didSeek
+  check c1.atEnd
+
+  a = SumTree[int].new(@[1, 2, 3, 4, 5], ())
+  c1 = a.initCursor
+  check not c1.seekForward(End[tuple[]](), Right, ())
+  check c1.didSeek
+  check c1.atEnd
+
+customTest "prev/next leaf":
+  var a = SumTree[int].new()
+  var c1 = a.initCursor
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.isNone
+
+  # One leaf
+  a = SumTree[int].new(@[1, 2], ())
+  c1 = a.initCursor
+  check a.isLeaf
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.isNone
+
+  c1.next(())
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.isNone
+
+  # One internal, multiple leafs
+  a = SumTree[int].new(@[1, 2, 3], ())
+  c1 = a.initCursor
+
+  when treeBase == 2:
+    check a.isInternal
+    check a.height == 1
+
+  c1.next(())
+  check c1.prevLeaf.isNone
+  when treeBase == 2:
+    check c1.nextLeaf.mapIt(@(it[].get.childItems)) == some @[3]
+
+  c1.next(())
+  check c1.prevLeaf.isNone
+  when treeBase == 2:
+    check c1.nextLeaf.mapIt(@(it[].get.childItems)) == some @[3]
+
+  c1.next(())
+  when treeBase == 2:
+    check c1.prevLeaf.mapIt(@(it[].get.childItems)) == some @[1, 2]
+  check c1.nextLeaf.isNone
+
+  c1.next(())
+  check c1.prevLeaf.isNone
+  check c1.nextLeaf.isNone
+
+customTest "prev/next item":
+  # One leaf
+  var a = SumTree[int].new(@[1, 2], ())
+  var c1 = a.initCursor
+
+  check c1.nextItem.mapIt(it[]) == 1.some
+
+  c1.next(())
+  check c1.prevItem.isNone
+  check c1.item.mapIt(it[]) == 1.some
+  check c1.nextItem.mapIt(it[]) == 2.some
+
+  c1.next(())
+  check c1.prevItem.mapIt(it[]) == 1.some
+  check c1.item.mapIt(it[]) == 2.some
+  check c1.nextItem.isNone
+
+  c1.next(())
+  check c1.prevItem.mapIt(it[]) == 2.some
+  check c1.item.isNone
+  check c1.nextItem.isNone
+
+  # One internal, multiple leafs
+  a = SumTree[int].new(@[1, 2, 3], ())
+  c1 = a.initCursor
+
+  check c1.nextItem.mapIt(it[]) == 1.some
+
+  c1.next(())
+  check c1.prevItem.isNone
+  check c1.item.mapIt(it[]) == 1.some
+  check c1.nextItem.mapIt(it[]) == 2.some
+
+  c1.next(())
+  check c1.prevItem.mapIt(it[]) == 1.some
+  check c1.item.mapIt(it[]) == 2.some
+  check c1.nextItem.mapIt(it[]) == 3.some
+
+  c1.next(())
+  check c1.prevItem.mapIt(it[]) == 2.some
+  check c1.item.mapIt(it[]) == 3.some
+  check c1.nextItem.isNone
+
+  c1.next(())
+  check c1.prevItem.mapIt(it[]) == 3.some
+  check c1.item.isNone
+  check c1.nextItem.isNone
+
+customTest "prev":
+  # One leaf
+  var a = SumTree[int].new(@[1, 2], ())
+  var c1 = a.initCursor
+
+  check c1.nextItem.mapIt(it[]) == 1.some
+
+  c1.prev(())
+  check c1.prevItem.mapIt(it[]) == 1.some
+  check c1.item.mapIt(it[]) == 2.some
+  check c1.nextItem.isNone
+
+  c1.prev(())
+  check c1.prevItem.isNone
+  check c1.item.mapIt(it[]) == 1.some
+  check c1.nextItem.mapIt(it[]) == 2.some
+
+  c1.prev(())
+  check c1.prevItem.isNone
+  check c1.item.isNone
+  check c1.nextItem.mapIt(it[]) == 1.some
+
+  # One internal, multiple leafs
+  a = SumTree[int].new(@[1, 2, 3], ())
+  c1 = a.initCursor
+
+  check c1.nextItem.mapIt(it[]) == 1.some
+
+  c1.prev(())
+  check c1.prevItem.mapIt(it[]) == 2.some
+  check c1.item.mapIt(it[]) == 3.some
+  check c1.nextItem.isNone
+
+  c1.prev(())
+  check c1.prevItem.mapIt(it[]) == 1.some
+  check c1.item.mapIt(it[]) == 2.some
+  check c1.nextItem.mapIt(it[]) == 3.some
+
+  c1.prev(())
+  check c1.prevItem.isNone
+  check c1.item.mapIt(it[]) == 1.some
+  check c1.nextItem.mapIt(it[]) == 2.some
+
+  c1.prev(())
+  check c1.prevItem.isNone
+  check c1.item.isNone
+  check c1.nextItem.mapIt(it[]) == 1.some
 
 testN(100)
 # testN[4](100)

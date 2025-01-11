@@ -1,4 +1,4 @@
-import std/[strutils, sequtils, strformat, unittest, random, math, sets, monotimes]
+import std/[strutils, sequtils, strformat, unittest, random, math, sets, monotimes, times]
 
 import nimsumtree/[buffer, rope, clock, clone]
 
@@ -80,7 +80,7 @@ suite "tests":
   teardown:
     if logTimes:
       let elapsed = getMonoTime() - startTime
-      echo &"    took {elapsed.ms} ms"
+      echo &"    took {elapsed.inMilliseconds} ms"
 
     debugLog = false
     sync()

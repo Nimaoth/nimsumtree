@@ -74,7 +74,8 @@ func `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline.} =
     discard
   {.warning[BareExcept]: on.}
 
-  deallocShared(a.data)
+  {.cast(noSideEffect).}:
+    deallocShared(a.data)
 
 func isNil*[T](arc {.byref.}: Arc[T]): bool = arc.data.isNil
 

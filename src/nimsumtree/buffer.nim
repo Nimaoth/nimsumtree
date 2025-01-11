@@ -1655,7 +1655,10 @@ proc fromJsonHook*(a: var Table[Lamport, uint32], b: JsonNode, opt = Joptions())
 proc toJsonHook*(a: Table[Lamport, uint32]): JsonNode =
   result = newJArray()
   for key, value in a.pairs:
-    result.add [key.toJson, value.toJson].toJson
+    let arr = newJArray()
+    arr.add key.toJson
+    arr.add value.toJson
+    result.add arr
 
 proc fromJsonHook*(a: var UndoOperation, b: JsonNode, opt = Joptions()) =
   a.timestamp = b["timestamp"].jsonTo(typeof(a.timestamp))

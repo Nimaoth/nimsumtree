@@ -237,10 +237,11 @@ static:
 
 func addSummary*[C](a: var Point, b: Point, cx: C) = a += b
 func clone*(a: Point): Point = a
-func cmp*[C](a: Point, b: Point, cx: C): int =
+func cmp*(a: Point, b: Point): int =
   result = cmp(a.row, b.row)
   if result == 0:
     result = cmp(a.column, b.column)
+func cmp*[C](a: Point, b: Point, cx: C): int = cmp(a, b)
 
 func addSummary*[C](a: var Point, b: TextSummary, cx: C) = a += b.lines
 func fromSummary*[C](_: typedesc[Point], a: TextSummary, cx: C): Point = a.lines
@@ -1040,6 +1041,19 @@ func cursorT*(self {.byref.}: Rope, D: typedesc): RopeCursorT[D] =
   result.position = D.default
   result.chunks.next(())
 
+func resetCursor*(self: var RopeCursor) {.inline.} =
+  self.chunks.resetCursor()
+  self.offset = 0
+
+func resetCursor*[D](self: var RopeCursorT[D]) {.inline.} =
+  self.chunks.resetCursor()
+  self.offset = 0.some
+  self.position = D.default
+
+func resetCursor*[D, D2](self: var RopeSliceCursor[D, D2]) {.inline.} =
+  self.cursor.resetCursor()
+  self.cursor.seekForward(self.range.a)
+
 func seekForward*(self: var RopeCursor, target: int) =
   assert target >= self.offset
   discard self.chunks.seekForward(target, Right, ())
@@ -1092,6 +1106,12 @@ func seekPrevRune*[D](self: var RopeCursorT[D]) =
       relOffset = chunk.chars.runeStart(chunk[].data.len - 1)
       self.position = self.chunks.startPos[0] + D.fromSummary(TextSummary.init(chunk.chars[0..<relOffset]), ())
       self.offset = (self.chunks.startPos[1] + relOffset).some
+  else:
+    if self.position == D.fromSummary(self.rope.summary, ()):
+      let pos = self.position.pred
+      self.resetCursor()
+      self.seekForward(pos)
+      self.biasTo(Left)
 
 func seekNextRune*[D](self: var RopeCursorT[D]) =
   bind runeSize
@@ -1399,19 +1419,6 @@ func chunk*[D, D2](self: var RopeSliceCursor[D, D2]): Option[ptr ChunkSlice] {.i
       let slice = ChunkSlice(chunk: self.item.get, range: sliceRange)
 
   return (ptr ChunkSlice).none
-
-func resetCursor*(self: var RopeCursor) {.inline.} =
-  self.chunks.resetCursor()
-  self.offset = 0
-
-func resetCursor*[D](self: var RopeCursorT[D]) {.inline.} =
-  self.chunks.resetCursor()
-  self.offset = 0.some
-  self.position = D.default
-
-func resetCursor*[D, D2](self: var RopeSliceCursor[D, D2]) {.inline.} =
-  self.cursor.resetCursor()
-  self.cursor.seekForward(self.range.a)
 
 func chunkStartPos*(self: var RopeCursor): int {.inline.} =
   self.chunks.startPos

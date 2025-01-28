@@ -126,11 +126,11 @@ type
 #   echo sizeof(ArcNode[Data, size])
 #   echo sizeof(Array[ArcNode[Data, size], size])
 
-proc `=copy`*[I](a: var Node[I], b: Node[I]) {.error.}
-proc `=dup`*[I](a: Node[I]): Node[I] {.error.}
+# proc `=copy`*[I](a: var Node[I], b: Node[I]) {.error.}
+# proc `=dup`*[I](a: Node[I]): Node[I] {.error.}
 
-proc `=copy`*[I](a: var SumTree[I], b: SumTree[I]) {.error.}
-proc `=dup`*[I](a: SumTree[I]): SumTree[I] {.error.}
+# proc `=copy`*[I](a: var SumTree[I], b: SumTree[I]) {.error.}
+# proc `=dup`*[I](a: SumTree[I]): SumTree[I] {.error.}
 
 # proc `=copy`*[I, D](a: var StackEntry[I, D], b: StackEntry[I, D]) {.error.}
 # proc `=dup`*[I, D](a: StackEntry[I, D]): StackEntry[I, D] {.error.}
@@ -201,7 +201,7 @@ func checkInvariants*[I](self: SumTree[I]) =
   when defined(testing):
     self.root.checkInvariants(true)
 
-template mapIt*[I](self: Option[I], op: untyped): untyped =
+template mapOpt*[I](self: Option[I], op: untyped): untyped =
   type OutType = typeof((
     block:
       var it{.inject.}: typeof(self.get, typeOfProc);
@@ -458,7 +458,7 @@ func new*[I, C](_: typedesc[SumTree[I]], items: openArray[I], cx: C): SumTree[I]
     var subItems: ItemArray[I]
     subItems.len = endIndex - i
     for k in 0..<subItems.len:
-      subItems[k] = items[i + k]
+      subItems[k] = items[i + k].clone()
 
     i = endIndex
 
@@ -634,6 +634,9 @@ func updateLast[I; C](self: var ArcNode[I], f: proc(node: var I) {.noSideEffect,
 func updateLast*[I; C](self: var SumTree[I], f: proc(node: var I) {.noSideEffect, raises: [].}, cx: C) =
   self.root.updateLast(f, cx)
   self.checkInvariants()
+
+func updateLast*[I](self: var SumTree[I], f: proc(node: var I) {.noSideEffect, raises: [].}) =
+  self.root.updateLast(f, ())
 
 func pushTreeRecursive[I; C](self: var ArcNode[I], other: sink ArcNode[I], cx: C): Option[ArcNode[I]] =
   mixin addSummary
@@ -907,7 +910,7 @@ func edit*[I; C](self: var SumTree[I], edits: sink seq[Edit[I]], cx: C): seq[I] 
     for edit in edits:
       let newKey = edit.key()
       var oldItem = cursor.item
-      if oldItem.mapIt(it[].key() < newKey).get(false):
+      if oldItem.mapOpt(it[].key() < newKey).get(false):
         newTree.extend(bufferedItems.move, cx)
         bufferedItems = newSeq[I]()
         let slice = cursor.slice(newKey, Left, cx)
@@ -1355,7 +1358,7 @@ func nextItem*[I, D](self: Cursor[I, D]): Option[ptr I] =
   elif self.stack.len > 0:
     let entry {.cursor.} = self.stack[self.stack.high]
     if entry.index == entry.node.get.mItemArray.high:
-      result = self.nextLeaf.mapIt(it[].get.mItemArray.first).flatten
+      result = self.nextLeaf.mapOpt(it[].get.mItemArray.first).flatten
     else:
       result = entry.node.get.mItemArray[entry.index + 1].addr.some
 
@@ -1367,7 +1370,7 @@ func prevItem*[I, D](self: Cursor[I, D]): Option[ptr I] =
   if self.stack.len > 0:
     let entry {.cursor.} = self.stack[self.stack.high]
     if entry.index == 0:
-      result = self.prevLeaf.mapIt(it[].get.mItemArray.last).flatten
+      result = self.prevLeaf.mapOpt(it[].get.mItemArray.last).flatten
     else:
       result = entry.node.get.mItemArray[entry.index - 1].addr.some
 

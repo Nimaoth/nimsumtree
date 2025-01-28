@@ -143,4 +143,7 @@ func toArray*[T](arr: openArray[T], C: static int): Array[T, C] =
   assert arr.len <= C
   result.len = typeof(result.len)(arr.len)
   for i in 0..<arr.len:
-    result[i] = arr[i]
+    when compiles(arr[i].clone()):
+      result[i] = arr[i].clone()
+    else:
+      result[i] = arr[i]

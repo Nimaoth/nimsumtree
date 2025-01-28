@@ -535,7 +535,7 @@ func isValid*(self: Anchor, buffer: BufferSnapshot): bool =
   let fragmentId = buffer.fragmentIdForAnchor(self)
   var cursor = buffer.fragments.initCursor (Option[Locator], int)
   discard cursor.seek(fragmentId.some, Left, ())
-  return cursor.item.mapIt(it.visible).get(false)
+  return cursor.item.mapOpt(it.visible).get(false)
 
 func anchorAtOffset(self: BufferSnapshot, offset: int, bias: Bias): Anchor =
   if bias == Left and offset == 0:
@@ -582,6 +582,7 @@ func cmp*(a, b: Anchor, buffer: BufferSnapshot): int =
   return cmp(a.bias, b.bias)
 
 func initEdit*[D](old, new: Range[D]): Edit[D] = Edit[D](old: old, new: new)
+func initPatch*[D](edits: openArray[Edit[D]]): Patch[D] = Patch[D](edits: @edits)
 
 func isEmpty*[D](self: Edit[D]): bool =
   self.old.len == D.default and self.new.len == D.default
@@ -1124,10 +1125,10 @@ proc applyRemoteEdit(self: var Buffer, edit: sink EditOperation) =
         let newTextLen = edit.newTextLen(editIndex)
         if newTextLen > 0:
           var oldStart = oldFragments.startPos().offset.uint32
-          if oldFragments.item.mapIt(it[].visible).get(false):
+          if oldFragments.item.mapOpt(it[].visible).get(false):
             oldStart = (oldStart.int + fragmentStart.int - oldFragments.startPos().versionedFullOffset.fullOffset.int).uint32
           let newStart = newFragments.summary().text.visible.uint32
-          let id = between(newFragments.summary.maxId, oldFragments.item.mapIt(it[].loc).get(Locator.high))
+          let id = between(newFragments.summary.maxId, oldFragments.item.mapOpt(it[].loc).get(Locator.high))
           let fragment = initFragment(edit.timestamp, newTextLen, insertionOffset, id)
           patch.add initEdit(oldStart...oldStart, newStart...(newStart + newTextLen.uint32))
           insertionSlices.add fragment.insertionSlice
@@ -1233,7 +1234,7 @@ proc applyRemote*(self: var Buffer, ops: sink seq[Operation]): bool =
   return self.flushDeferredOps()
 
 proc applyLocal[D, S](self: var Buffer, edits: openArray[tuple[range: Range[D], text: S]], timestamp: Lamport): EditOperation =
-  bind mapIt
+  bind mapOpt
 
   let snapshot = self.snapshot.clone()
 
@@ -1335,7 +1336,7 @@ proc applyLocal[D, S](self: var Buffer, edits: openArray[tuple[range: Range[D], 
         # Insert new text
         if edit.text.len > 0:
           let newStart = newFragments.summary().text.visible.uint32
-          let id = between(newFragments.summary.maxId, oldFragments.item.mapIt(it[].loc).get(Locator.high))
+          let id = between(newFragments.summary.maxId, oldFragments.item.mapOpt(it[].loc).get(Locator.high))
           let fragment = initFragment(timestamp, edit.text.len, insertionOffset, id)
           patch.add initEdit(fragmentStart.uint32...fragmentStart.uint32, newStart...(newStart + edit.text.len.uint32))
           insertionSlices.add fragment.insertionSlice

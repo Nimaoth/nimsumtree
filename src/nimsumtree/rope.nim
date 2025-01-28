@@ -342,25 +342,25 @@ func init*(_: typedesc[TextSummary], x: string): TextSummary =
 func summary*(x: Chunk): TextSummary =
   TextSummary.init(x.chars)
 
-func offsetToCount*(self: Chunk, target: int): Count =
+func offsetToCount*(self: openArray[char], target: int): Count =
   var offset = 0
-  for r in self.chars.runes:
+  for r in self.runes:
     if offset >= target:
       break
     offset += r.size
     result += 1.Count
 
-func countToOffset*(self: Chunk, target: Count): int =
+func countToOffset*(self: openArray[char], target: Count): int =
   var offset = 0.Count
-  for r in self.chars.runes:
+  for r in self.runes:
     if offset >= target:
       break
     result += r.size
     offset += 1.Count
 
-func offsetToPoint*(self: Chunk, target: int): Point =
+func offsetToPoint*(self: openArray[char], target: int): Point =
   var offset = 0
-  for r in self.chars.runes:
+  for r in self.runes:
     if offset >= target:
       break
     if r == '\n'.Rune:
@@ -370,9 +370,9 @@ func offsetToPoint*(self: Chunk, target: int): Point =
       result.column += r.size.uint32
     offset += r.size
 
-func countToPoint*(self: Chunk, target: Count): Point =
+func countToPoint*(self: openArray[char], target: Count): Point =
   var offset = 0.Count
-  for r in self.chars.runes:
+  for r in self.runes:
     if offset >= target:
       break
     if r == '\n'.Rune:
@@ -382,9 +382,9 @@ func countToPoint*(self: Chunk, target: Count): Point =
       result.column += r.size.uint32
     offset += 1.Count
 
-func pointToOffset*(self: Chunk, target: Point): int =
+func pointToOffset*(self: openArray[char], target: Point): int =
   var point = Point()
-  for r in self.chars.runes:
+  for r in self.runes:
     if point >= target:
       break
 
@@ -399,9 +399,9 @@ func pointToOffset*(self: Chunk, target: Point): int =
 
     result += r.size
 
-func pointToOffset*(self: Chunk, target: Point, bias: Bias): int =
+func pointToOffset*(self: openArray[char], target: Point, bias: Bias): int =
   var point = Point()
-  for r in self.chars.runes:
+  for r in self.runes:
     if point >= target:
       if bias == Right:
         return
@@ -422,9 +422,9 @@ func pointToOffset*(self: Chunk, target: Point, bias: Bias): int =
 
     result += r.size
 
-func pointToCount*(self: Chunk, target: Point): Count =
+func pointToCount*(self: openArray[char], target: Point): Count =
   var point = Point()
-  for r in self.chars.runes:
+  for r in self.runes:
     if point >= target:
       break
 
@@ -438,6 +438,14 @@ func pointToCount*(self: Chunk, target: Point): Count =
       point.column += r.size.uint32
 
     inc result
+
+func pointToOffset*(self: Chunk, target: Point): int = pointToOffset(self.chars, target)
+func pointToOffset*(self: Chunk, target: Point, bias: Bias): int = pointToOffset(self.chars, target, bias)
+func pointToCount*(self: Chunk, target: Point): Count = pointToCount(self.chars, target)
+func offsetToPoint*(self: Chunk, target: int): Point = offsetToPoint(self.chars, target)
+func offsetToCount*(self: Chunk, target: int): Count = offsetToCount(self.chars, target)
+func countToPoint*(self: Chunk, target: Count): Point = countToPoint(self.chars, target)
+func countToOffset*(self: Chunk, target: Count): int = countToOffset(self.chars, target)
 
 func toOffset*(self: Chunk, target: int): int =
   target
@@ -546,14 +554,14 @@ type
     cursor*: RopeCursorT[D]
     range*: Range[D]
 
-proc `=copy`*(a: var Rope, b: Rope) {.error.}
-proc `=dup`*(a: Rope): Rope {.error.}
+# proc `=copy`*(a: var Rope, b: Rope) {.error.}
+# proc `=dup`*(a: Rope): Rope {.error.}
 
 func clone*(self: Rope): Rope {.inline.} =
   Rope(tree: self.tree.clone())
 
-proc `=copy`*[D](a: var RopeSlice[D], b: RopeSlice[D]) {.error.}
-proc `=dup`*[D](a: RopeSlice[D]): RopeSlice[D] {.error.}
+# proc `=copy`*[D](a: var RopeSlice[D], b: RopeSlice[D]) {.error.}
+# proc `=dup`*[D](a: RopeSlice[D]): RopeSlice[D] {.error.}
 
 func clone*[D](self: RopeSlice[D]): RopeSlice[D] {.inline.} =
   RopeSlice[D](rope: self.rope.clone(), summary: self.summary, range: self.range)
@@ -615,7 +623,7 @@ func offsetToCount*(self: Rope, target: int): Count {.inline.} =
   var cursor = self.tree.initCursor (int, Count)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].offsetToCount(overshoot)).get(0.Count)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].offsetToCount(overshoot)).get(0.Count)
 
 func offsetToPoint*(self: Rope, target: int): Point {.inline.} =
   if target >= self.tree.summary.bytes:
@@ -623,7 +631,7 @@ func offsetToPoint*(self: Rope, target: int): Point {.inline.} =
   var cursor = self.tree.initCursor (int, Point)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].offsetToPoint(overshoot)).get(Point.default)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].offsetToPoint(overshoot)).get(Point.default)
 
 func offsetTo*(self: Rope, target: int, D: typedesc): D {.inline.} =
   if target >= self.tree.summary.bytes:
@@ -631,7 +639,7 @@ func offsetTo*(self: Rope, target: int, D: typedesc): D {.inline.} =
   var cursor = self.tree.initCursor (int, D)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].offsetTo(overshoot, D)).get(D.default)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].offsetTo(overshoot, D)).get(D.default)
 
 func countToOffset*(self: Rope, target: Count): int {.inline.} =
   assert not self.tree.isNil
@@ -640,7 +648,7 @@ func countToOffset*(self: Rope, target: Count): int {.inline.} =
   var cursor = self.tree.initCursor (Count, int)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].countToOffset(overshoot)).get(0)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].countToOffset(overshoot)).get(0)
 
 func countToPoint*(self: Rope, target: Count): Point {.inline.} =
   if target >= self.tree.summary.len:
@@ -648,7 +656,7 @@ func countToPoint*(self: Rope, target: Count): Point {.inline.} =
   var cursor = self.tree.initCursor (Count, Point)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].countToPoint(overshoot)).get(Point.default)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].countToPoint(overshoot)).get(Point.default)
 
 func pointToOffset*(self: Rope, target: Point): int {.inline.} =
   if target >= self.tree.summary.lines:
@@ -656,7 +664,7 @@ func pointToOffset*(self: Rope, target: Point): int {.inline.} =
   var cursor = self.tree.initCursor (Point, int)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].pointToOffset(overshoot)).get(0)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].pointToOffset(overshoot)).get(0)
 
 func pointToOffset*(self: Rope, target: Point, bias: Bias): int {.inline.} =
   if target >= self.tree.summary.lines:
@@ -664,7 +672,7 @@ func pointToOffset*(self: Rope, target: Point, bias: Bias): int {.inline.} =
   var cursor = self.tree.initCursor (Point, int)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].pointToOffset(overshoot, bias)).get(0)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].pointToOffset(overshoot, bias)).get(0)
 
 func pointToCount*(self: Rope, target: Point): Count {.inline.} =
   if target >= self.tree.summary.lines:
@@ -672,7 +680,7 @@ func pointToCount*(self: Rope, target: Point): Count {.inline.} =
   var cursor = self.tree.initCursor (Point, Count)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].pointToCount(overshoot)).get(0.Count)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].pointToCount(overshoot)).get(0.Count)
 
 func toOffset*(self: Rope, target: int): int {.inline.} =
   target
@@ -695,7 +703,7 @@ func toOffsetT*[D](self: Rope, target: D): int {.inline.} =
   var cursor = self.tree.initCursor (D, int)
   discard cursor.seekForward(target, Left, ())
   let overshoot = target - cursor.startPos[0]
-  return cursor.startPos[1] + cursor.item().mapIt(it[].toOffset(overshoot)).get(0)
+  return cursor.startPos[1] + cursor.item().mapOpt(it[].toOffset(overshoot)).get(0)
 
 func convert*(self: Rope, target: int, D2: typedesc[Point]): Point =
   self.offsetToPoint(target)
@@ -866,7 +874,7 @@ func add*(self: var Rope, text: openArray[char]) =
   var textPtr: ptr UncheckedArray[char] = cast[ptr UncheckedArray[char]](text[0].addr)
   template text: untyped = textPtr.toOpenArray(0, textLen - 1)
 
-  self.tree.updateLast cx=(), f=proc(chunk: var Chunk) =
+  self.tree.updateLast proc(chunk: var Chunk) =
 
     var splitIndex = if chunk.data.len + textLen <= chunkBase:
       textLen
@@ -909,7 +917,7 @@ func add*(self: var Rope, rope: sink Rope) =
   let chunk = chunks.item
   if chunk.isSome:
     let lastChunk = self.tree.last
-    let lastChunkSmallEnough = lastChunk.mapIt(it[].data.len < chunkBase).get(false)
+    let lastChunkSmallEnough = lastChunk.mapOpt(it[].data.len < chunkBase).get(false)
     if lastChunkSmallEnough or chunk.get[].data.len < chunkBase:
       self.add(chunk.get.chars)
       chunks.next(())
@@ -1195,7 +1203,7 @@ func currentRune*(self: RopeSliceCursor): Rune {.inline.} =
   self.cursor.currentRune
 
 func lineRange*(self: Rope, line: int, D: typedesc): Range[D] =
-  bind mapIt
+  bind mapOpt
 
   if line >= self.lines:
     return D.fromSummary(self.tree.summary, ())...D.fromSummary(self.tree.summary, ())
@@ -1205,13 +1213,13 @@ func lineRange*(self: Rope, line: int, D: typedesc): Range[D] =
   discard cursor.seekForward(Point.init(line, 0), Left, ())
   let firstOvershoot = Point.init(line, 0) - cursor.startPos[0]
   let firstStartPos = cursor.startPos
-  let firstOffset = cursor.item().mapIt(it[].convert(firstOvershoot, D)).get(D.default)
+  let firstOffset = cursor.item().mapOpt(it[].convert(firstOvershoot, D)).get(D.default)
   let first = firstStartPos[1] + firstOffset
 
   discard cursor.seekForward(Point.init(line + 1, 0), Left, ())
   let lastOvershoot = Point.init(line + 1, 0) - cursor.startPos[0]
   let lastStartPos = cursor.startPos
-  let lastOffset = cursor.item().mapIt(it[].convert(lastOvershoot, D)).get(D.default)
+  let lastOffset = cursor.item().mapOpt(it[].convert(lastOvershoot, D)).get(D.default)
   var last = lastStartPos[1] + lastOffset
 
   if line < self.lines - 1:

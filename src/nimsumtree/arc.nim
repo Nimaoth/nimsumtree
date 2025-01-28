@@ -33,13 +33,6 @@ type
   Arc*[T] {.acyclic.} = object
     data: ptr ArcData[T]
 
-proc `=copy`*[T](a: var Arc[T], b: Arc[T]) {.error.}
-proc `=dup`*[T](a: Arc[T]): Arc[T] {.error.}
-
-proc `=trace`*[T](a: var Arc[T], env: pointer) =
-  if a.data != nil:
-    `=trace`(a.data[].value, env)
-
 var arcCount*: int = 0
 func `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline.} =
   if a.data == nil:
@@ -76,6 +69,35 @@ func `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline.} =
 
   {.cast(noSideEffect).}:
     deallocShared(a.data)
+
+# proc `=copy`*[T](a: var Arc[T], b: Arc[T]) {.error.}
+# proc `=dup`*[T](a: Arc[T]): Arc[T] {.error.}
+proc `=copy`*[T](a: var Arc[T], b: Arc[T]) =
+  if a.data == b.data:
+    return
+
+  let oldSize = b.data[].count.fetchAdd(1, moRelaxed)
+
+  `=destroy`(a)
+  `=wasMoved`(a)
+
+  a.data = b.data
+
+  when debugCustomArc:
+    debugEcho "Arc.copy _", a.data[].id, " -> ", a.data[].count.load
+
+proc `=dup`*[T](a: Arc[T]): Arc[T] {.nodestroy.} =
+  result.data = nil
+  if a.data != nil:
+    let oldSize = a.data[].count.fetchAdd(1, moRelaxed)
+    result.data = a.data
+
+    when debugCustomArc:
+      debugEcho "Arc.dup _", a.data[].id, " -> ", a.data[].count.load
+
+proc `=trace`*[T](a: var Arc[T], env: pointer) =
+  if a.data != nil:
+    `=trace`(a.data[].value, env)
 
 func isNil*[T](arc {.byref.}: Arc[T]): bool = arc.data.isNil
 

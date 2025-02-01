@@ -587,7 +587,7 @@ func clone*[D](a: RopeCursorT[D]): RopeCursorT[D] =
 
 func clone*[D, D2](a: RopeSliceCursor[D, D2]): RopeSliceCursor[D, D2] =
   result.ropeSlice = a.ropeSlice.clone()
-  result.chunks = a.chunks.clone()
+  result.cursor = a.cursor.clone()
   result.range = a.range
 
 func checkInvariants*(self: Rope) {.inline.} =

@@ -1382,8 +1382,8 @@ func item*[I, D](self: Cursor[I, D]): Option[ptr I] =
 
   self.assertDidSeek
   if self.stack.len > 0:
-    let entry {.cursor.} = self.stack[self.stack.high]
-    let node {.cursor.} = entry.node.get
+    let entry = self.stack[self.stack.high].addr
+    let node = entry.node.get.addr
     case node.kind
     of Leaf:
       if entry.index >= node.mItemArray.len:

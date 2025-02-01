@@ -1092,6 +1092,11 @@ func seekForward*[D](self: var RopeCursorT[D], target: D) =
   self.position = target
   self.offsetOpt = int.none
 
+func cacheOffset*[D](self: var RopeCursorT[D]) =
+  if self.offsetOpt.isNone and self.chunks.item.isSome:
+    let overshoot = self.position - self.chunks.startPos[0]
+    self.offsetOpt = (self.chunks.startPos[1] + self.chunks.item.get[].toOffset(overshoot)).some
+
 func seekPrevRune*[D](self: var RopeCursorT[D]) =
   assert self.position > D.default
   bind runeStart
@@ -1540,6 +1545,10 @@ func suffix*[D](self: var RopeCursorT[D]): Rope =
 
 func offset*(self: RopeCursor): int {.inline.} =
   self.offset
+
+func didSeek*[D](self: RopeCursorT[D]): bool =
+  ## Returns true if the cursor moved to an item
+  self.chunks.didSeek
 
 func offset*[D](self: RopeCursorT[D]): int =
   if self.offsetOpt.isSome:

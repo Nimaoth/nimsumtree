@@ -84,6 +84,7 @@ func `<=`*(a: Count32, b: Count32): bool {.borrow.}
 func `$`*[T](a: Range[T]): string {.inline.} = $a.a & "..." & $a.b
 func `...`*[T](a, b: T): Range[T] {.inline.} = Range[T](a: a, b: b)
 func len*[T](r: Range[T]): T {.inline.} = r.b - r.a
+func `+`*[T](t: T, r: Range[T]): Range[T] {.inline.} = (t + r.a)...(t + r.b)
 func `+`*[T](r: Range[T], t: T): Range[T] {.inline.} = (r.a + t)...(r.b + t)
 func `-`*[T](r: Range[T], t: T): Range[T] {.inline.} = (r.a - t)...(r.b - t)
 func `in`*[T](t: T, r: Range[T]): bool {.inline.} = t >= r.a and t <= r.b
@@ -1006,7 +1007,7 @@ func slice*[D, D2](self: RopeSlice[D2], range: Range[D], bias: Bias = Bias.Right
   RopeSlice[D](rope: self.rope.clone(), summary: summary, range: (range.a + start)...(range.b + start))
 
 func slice*[D2](self: RopeSlice[D2], D: typedesc): RopeSlice[D] {.inline.} =
-  self.slice(0.D...D.fromSummary(self.summary, ()))
+  self.slice(D.default...D.fromSummary(self.summary, ()))
 
 func suffix*[D, D2](self: RopeSlice[D2], start: D): RopeSlice[D] {.inline.} =
   let last = D.fromSummary(self.summary, ())

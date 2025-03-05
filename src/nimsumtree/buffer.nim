@@ -761,6 +761,29 @@ proc convert*(patch: Patch[uint32], D: typedesc, oldText: Rope, newText: Rope): 
     let endPosNew = cn.position
     result.edits[i] = Edit[D](old: startPosOld...endPosOld, new: startPosNew...endPosNew)
 
+proc convert*(patch: Patch[Point], D: typedesc[int], oldText: Rope, newText: Rope): Patch[D] =
+  var co = oldText.cursorT(Point)
+  var cn = newText.cursorT(Point)
+
+  result.edits.setLen(patch.edits.len)
+
+  for i, edit in patch.edits:
+    co.seekForward(edit.old.a)
+    cn.seekForward(edit.new.a)
+
+    let startPosOld = co.offset
+    let startPosNew = cn.offset
+
+    if edit.old.b > edit.old.a:
+      co.seekForward(edit.old.b)
+
+    if edit.new.b > edit.new.a:
+      cn.seekForward(edit.new.b)
+
+    let endPosOld = co.offset
+    let endPosNew = cn.offset
+    result.edits[i] = Edit[D](old: startPosOld...endPosOld, new: startPosNew...endPosNew)
+
 proc binarySearchBy*[T, K](a: openArray[T], key: K,
                          cmp: proc (x: T, y: K): int {.closure.}): (bool, int) {.effectsOf: cmp.} =
   ## Binary search for `key` in `a`. Return the index of `key` and whether is was found

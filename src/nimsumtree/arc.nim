@@ -34,7 +34,7 @@ type
     data: ptr ArcData[T]
 
 var arcCount*: int = 0
-func `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline.} =
+proc `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline.} =
   if a.data == nil:
     return
 
@@ -61,8 +61,9 @@ func `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline.} =
 
   {.warning[BareExcept]: off.}
   try:
-    `=destroy`(a.data[].value)
-    `=wasMoved`(a.data[].value)
+    {.cast(noSideEffect).}:
+      `=destroy`(a.data[].value)
+      `=wasMoved`(a.data[].value)
   except:
     discard
   {.warning[BareExcept]: on.}
@@ -76,7 +77,7 @@ proc `=copy`*[T](a: var Arc[T], b: Arc[T]) =
   if a.data == b.data:
     return
 
-  let oldSize = b.data[].count.fetchAdd(1, moRelaxed)
+  discard b.data[].count.fetchAdd(1, moRelaxed)
 
   `=destroy`(a)
   `=wasMoved`(a)
@@ -89,7 +90,7 @@ proc `=copy`*[T](a: var Arc[T], b: Arc[T]) =
 proc `=dup`*[T](a: Arc[T]): Arc[T] {.nodestroy.} =
   result.data = nil
   if a.data != nil:
-    let oldSize = a.data[].count.fetchAdd(1, moRelaxed)
+    discard a.data[].count.fetchAdd(1, moRelaxed)
     result.data = a.data
 
     when debugCustomArc:

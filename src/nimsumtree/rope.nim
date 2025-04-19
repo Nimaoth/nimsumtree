@@ -3,6 +3,7 @@ import nimsumtree/[sumtree, static_array]
 import uni
 
 export static_array, arc
+export Bias
 
 {.push gcsafe.}
 {.push raises: [].}
@@ -1558,7 +1559,7 @@ func offset*[D](self: RopeCursorT[D]): int =
     let chunk = self.chunks.item.get
     let startPos = self.chunks.startPos
     let relOffset = chunk[].toOffset(Point(self.position - startPos[0]))
-    assert relOffset < chunk.chars.len
+    assert relOffset <= chunk.chars.len
     let offset = startPos[1] + relOffset
     return offset
   elif not self.chunks.didSeek:

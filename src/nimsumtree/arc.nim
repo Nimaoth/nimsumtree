@@ -34,7 +34,7 @@ type
     data: ptr ArcData[T]
 
 var arcCount*: int = 0
-proc `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline.} =
+proc `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline, nimcall.} =
   if a.data == nil:
     return
 

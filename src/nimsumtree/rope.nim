@@ -1005,7 +1005,7 @@ func slice*[D, D2](self: RopeSlice[D2], range: Range[D], bias: Bias = Bias.Right
   var c = self.cursor(range.a)
   let summary = c.summary(TextSummary, range.b)
   let start = self.rope.convert(self.range.a, D)
-  RopeSlice[D](rope: self.rope.clone(), summary: summary, range: (range.a + start)...(range.b + start))
+  RopeSlice[D](rope: self.rope.clone(), summary: summary, range: (start + range.a)...(start + range.b))
 
 func slice*[D2](self: RopeSlice[D2], D: typedesc): RopeSlice[D] {.inline.} =
   self.slice(D.default...D.fromSummary(self.summary, ()))

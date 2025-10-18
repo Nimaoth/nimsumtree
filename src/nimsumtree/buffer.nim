@@ -71,7 +71,7 @@ type
   Anchor* = object
     timestamp*: Lamport
     offset*: int
-    bias: Bias
+    bias*: Bias
     bufferId*: Option[BufferId]
 
 func fullOffset*(self: VersionedFullOffset): FullOffset =

@@ -20,7 +20,7 @@ func assertNoLeaks*() {.noSideEffect.} =
   when debugCustomArcLeaks:
     {.cast(noSideEffect).}:
       if activeArcs != 0:
-        echo "activeArcs: ", activeArcs
+        debugEcho "activeArcs: ", activeArcs
         assert activeArcs != 0
 
 type
@@ -34,17 +34,18 @@ type
     data: ptr ArcData[T]
 
 var arcCount*: int = 0
-proc `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline, nimcall.} =
-  if a.data == nil:
+
+proc destroyImpl[T](a: ptr Arc[T]) {.raises: [], noSideEffect, inline, nimcall.} =
+  if a[].data == nil:
     return
 
   when debugCustomArc:
-    debugEcho "Arc.destroy _", a.data[].id, ", count: ", a.data[].count.load
+    debugEcho "Arc.destroy _", a[].data[].id, ", count: ", a[].data[].count.load
 
-  if a.data[].count.fetchSub(1, moRelease) != 1:
+  if a[].data[].count.fetchSub(1, moRelease) != 1:
     return
 
-  # todo: support thread sanitizer: use a.data[].count.load
+  # todo: support thread sanitizer: use a[].data[].count.load
   # see: sync.rs impl Drop for Arc
   fence(moAcquire)
 
@@ -53,8 +54,8 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline, nimcall.} =
       dec activeArcs
 
   when debugCustomArc:
-    debugEcho "Arc.destroy _", a.data[].id, ", count is zero, dealloc"
-    echo "Arc.destroy _", a.data[].id, ", count: ", a.data[].count.load
+    debugEcho "Arc.destroy _", a[].data[].id, ", count is zero, dealloc"
+    debugEcho "Arc.destroy _", a[].data[].id, ", count: ", a[].data[].count.load
 
   {.cast(noSideEffect).}:
     arcCount.dec
@@ -62,24 +63,25 @@ proc `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline, nimcall.} =
   {.warning[BareExcept]: off.}
   try:
     {.cast(noSideEffect).}:
-      `=destroy`(a.data[].value)
-      `=wasMoved`(a.data[].value)
+      `=destroy`(a[].data[].value)
+      `=wasMoved`(a[].data[].value)
   except:
     discard
   {.warning[BareExcept]: on.}
 
   {.cast(noSideEffect).}:
-    deallocShared(a.data)
+    deallocShared(a[].data)
 
-# proc `=copy`*[T](a: var Arc[T], b: Arc[T]) {.error.}
-# proc `=dup`*[T](a: Arc[T]): Arc[T] {.error.}
+proc `=destroy`*[T](a: Arc[T]) {.raises: [], noSideEffect, inline, nimcall.} =
+  destroyImpl(a.unsafeAddr)
+
 proc `=copy`*[T](a: var Arc[T], b: Arc[T]) =
   if a.data == b.data:
     return
 
   discard b.data[].count.fetchAdd(1, moRelaxed)
 
-  `=destroy`(a)
+  destroyImpl(a.addr)
   `=wasMoved`(a)
 
   a.data = b.data
@@ -96,9 +98,10 @@ proc `=dup`*[T](a: Arc[T]): Arc[T] {.nodestroy.} =
     when debugCustomArc:
       debugEcho "Arc.dup _", a.data[].id, " -> ", a.data[].count.load
 
-proc `=trace`*[T](a: var Arc[T], env: pointer) =
-  if a.data != nil:
-    `=trace`(a.data[].value, env)
+when defined(gcOrc):
+  proc `=trace`*[T](a: var Arc[T], env: pointer) =
+    if a.data != nil:
+      `=trace`(a.data[].value, env)
 
 func isNil*[T](arc {.byref.}: Arc[T]): bool = arc.data.isNil
 
